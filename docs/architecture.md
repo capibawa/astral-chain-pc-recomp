@@ -142,7 +142,8 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   and 672x378, and with `res1062` and `ssaa`, where no smaller size fits, DLSS runs as DLAA. A mode change in the menu
   makes the framework's per-frame window update (0x9db520), on the game's thread, write the new size and report a display
   change, so the game runs its own docked / handheld sequence, which rebuilds the scene targets at the next frame
-  (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). The whole scene chain, bloom and composite
+  (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). With `dlaa` switched off, NGX not up or DLSS failed in the
+  run, the scene goes back to the game's size the same way. The whole scene chain, bloom and composite
   included, then runs at that size and the game's SMAA blending pass scales it to the output. DLSS runs on the
   composite at the begin of that pass, and the pass samples DLSS's output in the composite's place (`vk_dlaa_swap_img`);
   SMAA is off meanwhile and material textures take a mip bias of log2(scene / output). `ssaa` multiplies both sizes

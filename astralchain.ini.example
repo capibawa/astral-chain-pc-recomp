@@ -187,7 +187,7 @@
 # DLSS to the output, for more frames per second; they sharpen texture filtering to match and turn the game's SMAA off
 # while DLSS runs). ssaa scales both: at 2160p performance renders 1920x1080 and DLSS outputs 3840x2160; at 1440p the
 # scene takes the nearest size the game can render scaled (65, 60, 50 and 35 %). They apply
-# only with dlaa = 1 and nvngx_dlss.dll next to astralchain.exe; otherwise the scene keeps the game's size. Changes
+# only with dlaa = 1 and nvngx_dlss.dll next to astralchain.exe, on a GPU where DLSS comes up; otherwise the scene keeps the game's size. Changes
 # while the game runs take effect at once (the game rebuilds its scene targets at the next frame).
 # dlss = dlaa
 # The DLSS model: default (NVIDIA's advice per mode: K for dlaa, quality and balanced, M for performance), k (K in
