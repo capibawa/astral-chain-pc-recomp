@@ -549,11 +549,13 @@ static int mv_pass(VkExec *ex, const struct Size *e, VkImageView zv, float jx, f
     vkCmdDispatch(cb, (w + 7) / 8, (h + 7) / 8, 1);
     full_barrier(cb);
     times_mark(cb, T_MV1);
+    vk_mvcheck_camera(cb, e->mv, w, h, jx, jy);   // AC_MV_CHECK (test)
     // what moves on its own over the camera's motion (vk_exec_draw.c, per-object motion)
     uint64_t c0 = T.on > 0 ? kern_now_ns() : 0;
     if (vk_mvobj_execute(ex, D.cam_addr, e->mv_view, &D.depth, w, h)) full_barrier(cb);
     if (T.on > 0) T.cpu_mv += kern_now_ns() - c0;
     times_mark(cb, T_OBJ);
+    vk_mvcheck_final(cb, ex->fence, e->mv, D.color.image, D.color.format, D.color.level, D.color.base_layer, w, h, jx, jy);
     if (T.on > 0) T.used[T.slot] = 1;   // the DLSS marks follow in evaluate
     D.mv_frames++;
     return 1;
@@ -748,6 +750,7 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
     D.reset = 0;
     D.last = e, e->used = D.evals + 1;
     full_barrier(cb);
+    vk_mvcheck_output(cb, e->out, ow, oh);   // AC_MV_CHECK (test)
     // the result into the scene target (DLAA: the bloom, the post passes and the HUD read it and draw over it) or into
     // the scaling pass's target (the HUD draws over it)
     VkImageBlit b = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},

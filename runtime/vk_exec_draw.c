@@ -2776,7 +2776,11 @@ static void mvobj_draw_(VkExec *ex, const p_draw_idx *d, VkBuffer ib, VkDeviceSi
     MO.draws++;
 }
 
+static char fm_last[32];   // the last executed list's draw count, for AC_MV_CHECK's lines (vk_mvobj_frame_masks)
+const char *vk_mvobj_frame_masks(void) { return fm_last; }
+
 int vk_mvobj_execute(VkExec *ex, uint64_t cam, VkImageView mv, const VkExecTarget *z, uint32_t w, uint32_t h) {
+    fm_last[0] = 0;
     static uint64_t frames;
     if (++frames % 600 == 0)
         rt_log("vk_exec: per-object motion: %.2f ms a frame listing, %.2f ms recording; %llu draws considered, %llu "
@@ -2801,6 +2805,7 @@ int vk_mvobj_execute(VkExec *ex, uint64_t cam, VkImageView mv, const VkExecTarge
         if (MQ.d[i].cam == cam) MQ.d[kept++] = MQ.d[i];
         else MO.other_cam++;
     MQ.n = kept;
+    snprintf(fm_last, sizeof fm_last, " %d", MQ.n);
     if (!MQ.n) {
         mo_drop();
         return 0;
