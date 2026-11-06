@@ -439,6 +439,7 @@ static struct {
     int on;                      // -1 not read
     VkQueryPool pool;
     uint32_t slot;
+    int began;                   // this frame's mv_pass began a slot (a frame without camera motion takes none)
     int used[TIMES_SLOTS];       // the slot holds a frame's timestamps (all T_N written)
     double gpu[3];               // ms summed: camera motion, object motion, DLSS
     uint64_t frames, cpu_drain, cpu_ngx, cpu_mv;   // ns summed
@@ -479,7 +480,7 @@ static void times_begin(VkCommandBuffer cb) {
             }
         }
     }
-    T.used[T.slot] = 0;
+    T.used[T.slot] = 0, T.began = 1;
     vkCmdResetQueryPool(cb, T.pool, T.slot * T_N, T_N);
 }
 
@@ -859,6 +860,7 @@ static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *ds
     static int no_mv = -1;
     if (no_mv < 0) no_mv = !rt_knob("DLAA_MV", "1");   // AC_DLAA_MV=0: zero motion (test)
     int masked = 0;
+    T.began = 0;
     if (no_mv || !mv_pass(ex, e, zv, jx, jy, char_bias(), &masked)) {
         VkClearColorValue zero = {{0, 0, 0, 0}};
         VkImageSubresourceRange all = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -866,7 +868,7 @@ static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *ds
         full_barrier(cb);
         if (!no_mv) D.reset = 1, D.why[1]++;   // no camera: the history cannot be moved along
     }
-    int timed = T.on > 0 && T.used[T.slot];   // mv_pass began this frame's slot
+    int timed = T.on > 0 && T.began && T.used[T.slot];   // mv_pass began this frame's slot and got to its end
     if (timed) times_mark(cb, T_DL0);
     uint64_t c0 = timed ? kern_now_ns() : 0;
     rec_drain();   // NGX records into the command buffer itself: the recorder thread must have made every call so far
