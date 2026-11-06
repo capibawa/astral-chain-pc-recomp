@@ -286,7 +286,7 @@ VkImageView vk_dlaa_swap_view;
 static int dl_active(void) { return N.available && !D.failed && D.on; }
 
 // The scene set makes the scene smaller than the output (res_sizes; a mode change takes effect once the game rebuilt
-// its scene targets, resolution.c res_present): DLSS scales instead of DLAA.
+// its scene targets, resolution.c rt_res_rebuild_w8): DLSS scales instead of DLAA.
 static int scaled(void) {
     unsigned o[2], s[2];
     res_sizes(o, s);
