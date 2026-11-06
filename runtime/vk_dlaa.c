@@ -378,12 +378,14 @@ static struct Size *size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_
     VkImageUsageFlags ux = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                            VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     // the motion image is also the per-object pass's colour target (vk_mvobj_execute)
-    if (!image2d(ow, oh, VK_FORMAT_R16G16B16A16_SFLOAT, u, &e->out, &e->out_mem, &e->out_view) ||
-        !image2d(w, h, VK_FORMAT_R16G16_SFLOAT, u | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &e->mv, &e->mv_mem, &e->mv_view))
+    int made = image2d(ow, oh, VK_FORMAT_R16G16B16A16_SFLOAT, u, &e->out, &e->out_mem, &e->out_view) &&
+               image2d(w, h, VK_FORMAT_R16G16_SFLOAT, u | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &e->mv, &e->mv_mem, &e->mv_view);
+    for (int i = 0; i < 4 && made; i++)
+        made = image2d(w, h, i < 3 ? VK_FORMAT_R8_UNORM : VK_FORMAT_R16G16_SFLOAT, ux, &e->x[i], &e->x_mem[i], &e->x_view[i]);
+    if (!made) {   // out of video memory, most likely: what was made goes back, DLSS turns off (evaluate) for this run
+        free_size(e);
         return NULL;
-    for (int i = 0; i < 4; i++)
-        if (!image2d(w, h, i < 3 ? VK_FORMAT_R8_UNORM : VK_FORMAT_R16G16_SFLOAT, ux, &e->x[i], &e->x_mem[i], &e->x_view[i]))
-            return NULL;
+    }
     VkImageMemoryBarrier2 ib[6];
     VkImage im[6] = {e->out, e->mv, e->x[0], e->x[1], e->x[2], e->x[3]};
     for (int i = 0; i < 6; i++)
