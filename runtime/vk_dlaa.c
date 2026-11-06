@@ -1112,7 +1112,8 @@ void vk_dlaa_frame(void) {
 // gives them other hashes makes the switch do nothing.
 // While DLSS upscales, SMAA is off whatever the setting: its weights are found on the small picture, and the blending
 // pass, which also scales, would apply them to DLSS's full-size one, smearing edges by a scene pixel. With the weights
-// zero that pass only scales (a plain lookup of DLSS's picture at each output pixel).
+// zero that pass only scales (a plain lookup of DLSS's picture at each output pixel). A switch that stops finding them
+// says so once, as the TotK Recomp's FXAA switch does: the first skip, or a minute of frames (3600) with none.
 static const uint64_t SMAA_EDGES = 0x312b4b91aa889b89ull, SMAA_WEIGHTS = 0xc7dc68a5786be9ceull;
 
 static uint64_t spirv_hash(const GfxShader *s) {
@@ -1134,13 +1135,24 @@ static uint64_t spirv_hash(const GfxShader *s) {
 int vk_dlaa_skip_draw(VkExec *ex, const GfxShader *fs) {
     static uint64_t frame_read = ~0ull;
     static int smaa = 1;
+    static uint64_t off_frames;
+    static int found, reported;
     uint64_t f = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
     if (f != frame_read) {   // once a frame: the menu switches it live
         frame_read = f;
         smaa = cfg_bool("AC_SMAA") && !(scaled() && dl_active());
+        if (!smaa && !found && !reported && ++off_frames == 3600) {
+            reported = 1;
+            rt_log("dlaa: smaa off found no draw of the game's SMAA in %llu frames (its fragment shaders are not "
+                   "SMAA_EDGES and SMAA_WEIGHTS): SMAA stays on", (unsigned long long)off_frames);
+        }
     }
     if (smaa || !fs) return 0;   // nothing to skip: no shader lookup per draw at the defaults
     uint64_t h = spirv_hash(fs);
+    if ((h == SMAA_EDGES || h == SMAA_WEIGHTS) && !found) {
+        found = 1;
+        rt_log("dlaa: SMAA off skips the game's SMAA (fragment shader %016llx)", (unsigned long long)h);
+    }
     if (h == SMAA_EDGES) return 1;
     if (h == SMAA_WEIGHTS) {   // zero weights: the blending pass passes the picture through
         VkClearAttachment ca = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .colorAttachment = 0};
