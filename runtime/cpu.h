@@ -93,6 +93,10 @@ void rt_res_w8(Cpu *c), rt_res_h8(Cpu *c), rt_res_w9(Cpu *c), rt_res_h9(Cpu *c),
 uint64_t rt_res_cmp_w0(Cpu *c);
 void rt_res_budget_w8(Cpu *c);
 
+// ---- scene size patch helpers (runtime/resolution.c, set scene of recomp/patches-v101.txt)
+void rt_res_scene_w1(Cpu *c);       // w1 = the scene width on the patch page
+void rt_res_scene_h2(Cpu *c);       // w2 = the scene height on the patch page
+
 
 #if defined(__aarch64__)
 static inline uint64_t rt_get_fpcr(void) { uint64_t v; __asm__ volatile("mrs %0, fpcr" : "=r"(v)); return v; }
