@@ -648,12 +648,12 @@ static int mv_pass(VkExec *ex, struct Size *e, VkImageView zv, float jx, float j
             }
     memcpy(D.cam_prev, cur_vp, sizeof cur_vp);
     D.cam_prev_ok = 1;
-    if (!have_m) return e->obj_ok = 0;   // nothing to reproject into: zero motion, new history
     // A camera cut (a cutscene's next shot, a respawn): the view turned more than CUT_DEG or moved more than CUT_DIST
     // units (metres) in one frame, which no continuous camera does at 60 fps. The view, not the picture, is compared: a
     // cutscene's fast zoom moves the picture's corners by half the screen a frame for seconds. The history is then of
     // another shot, so DLSS starts a new one from zero motion, as NVIDIA's DLSS guide asks for cuts.
-    if (vw && D.view_ok) {
+    int cut = 0;
+    if (have_m && vw && D.view_ok) {
         double tr = 0, dist2 = 0;   // trace of R_prev R_cur^T; camera positions -R^T t
         double pc[3] = {0, 0, 0}, pp[3] = {0, 0, 0};
         for (int r = 0; r < 3; r++)
@@ -662,16 +662,15 @@ static int mv_pass(VkExec *ex, struct Size *e, VkImageView zv, float jx, float j
             for (int r = 0; r < 3; r++) pc[k] -= vw[r * 4 + k] * vw[r * 4 + 3], pp[k] -= D.view_prev[r * 4 + k] * D.view_prev[r * 4 + 3];
         for (int k = 0; k < 3; k++) dist2 += (pc[k] - pp[k]) * (pc[k] - pp[k]);
         double c = (tr - 1) / 2, deg = acos(c > 1 ? 1 : c < -1 ? -1 : c) * 57.29577951308232;
-        if (deg > CUT_DEG || dist2 > CUT_DIST * CUT_DIST) {
-            for (int i = 0; i < 16; i++) D.view_prev[i] = vw[i];
-            if (++D.cuts <= 20)
-                rt_log("dlaa: camera cut at DLAA frame %llu (turned %.0f degrees, moved %.1f): new history",
-                       (unsigned long long)D.evals, deg, sqrt(dist2));
-            return e->obj_ok = 0;
-        }
+        cut = deg > CUT_DEG || dist2 > CUT_DIST * CUT_DIST;
+        if (cut && ++D.cuts <= 20)
+            rt_log("dlaa: camera cut at DLAA frame %llu (turned %.0f degrees, moved %.1f): new history",
+                   (unsigned long long)D.evals, deg, sqrt(dist2));
     }
+    // kept on every way out, or the first frame after a gap in the motion is measured against the view before the gap
     if (vw) for (int i = 0; i < 16; i++) D.view_prev[i] = vw[i];
     D.view_ok = vw != NULL;
+    if (!have_m || cut) return e->obj_ok = 0;   // nothing to reproject into: zero motion, new history
     uint32_t ms = D.mvm_slot++ % MVM_SLOTS;
     float *blk = (float *)(D.mvm_map + (size_t)ms * D.mvm_stride);
     for (int i = 0; i < 16; i++) blk[i] = (float)m[i];
@@ -1086,7 +1085,7 @@ void vk_dlaa_frame(void) {
         rt_log("dlaa: %s", on ? "on" : "off");
         D.on = on;
         // either way the next DLAA frame starts a new history from an unjittered frame
-        D.reset = 1, D.cam_prev_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;
+        D.reset = 1, D.cam_prev_ok = D.view_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;
         D.comp_ok = 0;
         D.hold = 0;
         return;
