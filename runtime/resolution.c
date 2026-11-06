@@ -37,6 +37,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zstd.h>
+#ifndef _WIN32
+#include <dirent.h>
+#endif
 
 #include "cfg.h"
 #include "cpu.h"
@@ -66,15 +69,31 @@ static struct {
 } R;
 
 // The scene size is decided before the device exists, so NGX cannot be asked yet. NGX loads DLSS from nvngx_dlss.dll
-// next to astralchain.exe (vk_dlaa.c vk_dlaa_init): without that file DLSS never runs, and a DLSS mode would leave the
-// game's plain scaling at 33..67 % of the output. After the TotK Recomp's resolution.c (same author, MIT).
+// next to astralchain.exe on Windows, libnvidia-ngx-dlss.so.<version> next to the executable on Linux (vk_dlaa.c
+// vk_dlaa_init): without that file DLSS never runs, and a DLSS mode would leave the game's plain scaling at 33..67 % of
+// the output. After the TotK Recomp's resolution.c (same author, MIT).
 static int dlss_dll(void) {
+#ifdef _WIN32
     char exe[1024], path[1024 + 32];
     if (!plat_exe_path(exe, sizeof exe)) return 1;
     char *last = plat_last_sep(exe);
     if (!last) return 1;
     snprintf(path, sizeof path, "%.*s/nvngx_dlss.dll", (int)(last - exe), exe);
     return plat_file_exists(path);
+#else
+    char exe[1024];
+    if (!plat_exe_path(exe, sizeof exe)) return 1;
+    char *last = plat_last_sep(exe);
+    if (!last) return 1;
+    *last = 0;
+    DIR *d = opendir(exe);
+    if (!d) return 1;
+    int found = 0;
+    for (struct dirent *e; !found && (e = readdir(d));)
+        found = !strncmp(e->d_name, "libnvidia-ngx-dlss.so.", 22);
+    closedir(d);
+    return found;
+#endif
 }
 
 // The scene's share of the output for an AC_DLSS mode; 0 for dlaa (the scene keeps the game's size), while DLSS/DLAA
@@ -87,8 +106,13 @@ static double dlss_share(const char *m) {
     for (int i = 0; i < (int)(sizeof dlss / sizeof dlss[0]); i++)
         if (!strcmp(m, dlss[i].name)) {
             if (dll < 0 && !(dll = dlss_dll()))
+#ifdef _WIN32
                 rt_log("resolution: DLSS %s needs nvngx_dlss.dll next to astralchain.exe, which is missing: the scene "
                        "keeps the game's size", m);
+#else
+                rt_log("resolution: DLSS %s needs libnvidia-ngx-dlss.so.<version> next to the executable, which is "
+                       "missing: the scene keeps the game's size", m);
+#endif
             return dll ? dlss[i].k : 0;
         }
     return 0;
