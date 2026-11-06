@@ -119,10 +119,15 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   the light target's last pass, so the composite, post effects and the HUD read the anti-aliased picture. The scene's
   draws get a sub-pixel Halton viewport jitter (16 phases for DLAA, 8 x the squared upscaling ratio otherwise); motion
   vectors are the camera's, reprojected from the scene depth through one matrix, last frame's view-projection of the
-  scene camera block (constant bank c3) times the inverse of this frame's, made in double precision on the CPU.
-  `dlss_preset` picks the DLSS model (default: NVIDIA's per mode, K for DLAA); `AC_DLAA_TIMES=1` logs its GPU and CPU
-  cost and `AC_DLAA_MVDEBUG=1` shows the motion vectors in place of the picture. `fxaa` switches the game's own FXAA
-  pass.
+  scene camera block (constant bank c3) times the inverse of this frame's, made in double precision on the CPU. Over
+  them goes what moves on its own (`AC_DLAA_OBJMV`, on): the depth prepass's draws whose position reads an object's
+  blocks (place c14, bones and such) are drawn again into the motion image with a last-frame variant of their vertex
+  shader (translator patch 0012) and last frame's blocks. Astral Chain hands those blocks out at new addresses every
+  frame, so `vk_mvprev.c` keeps its own copy of each object's blocks and finds the object again next frame by its draw
+  (program, index and vertex buffers, counts) and position; objects whose blocks did not change are left to the camera's
+  vectors. `dlss_preset` picks the DLSS model (default: NVIDIA's per mode, K for DLAA); `AC_DLAA_TIMES=1` logs its GPU
+  and CPU cost and `AC_DLAA_MVDEBUG=1` shows the motion vectors in place of the picture. `fxaa` switches the game's own
+  FXAA pass.
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). The CPU decoder (`tex_astc*.c`) is the fallback and the test oracle.
 - Draw state. A draw whose program, bound state and textures repeat reuses the previous draw's shaders and skips rebuilding its descriptor sets; descriptor sets are written through update templates (`vk_exec_draw.c`, `vk_pipeline.c`).

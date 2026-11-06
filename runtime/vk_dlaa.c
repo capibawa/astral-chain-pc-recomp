@@ -315,8 +315,9 @@ static struct Size *size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_
     }
     VkImageUsageFlags u = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                           VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    // the motion image is also the per-object pass's colour target (vk_mvobj_execute)
     if (!image2d(ow, oh, VK_FORMAT_R16G16B16A16_SFLOAT, u, &e->out, &e->out_mem, &e->out_view) ||
-        !image2d(w, h, VK_FORMAT_R16G16_SFLOAT, u, &e->mv, &e->mv_mem, &e->mv_view))
+        !image2d(w, h, VK_FORMAT_R16G16_SFLOAT, u | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &e->mv, &e->mv_mem, &e->mv_view))
         return NULL;
     VkImageMemoryBarrier2 ib[2];
     VkImage im[2] = {e->out, e->mv};
@@ -357,12 +358,14 @@ static NgxResourceVK res_image(VkImageView v, VkImage img, VkFormat f, uint32_t 
 }
 
 // ---------------------------------------------------------------- timing (AC_DLAA_TIMES=1)
-// GPU timestamps around the camera motion dispatch and DLSS's evaluation, and the CPU time of NGX's call and of
-// draining the recorder before it, summed and logged every TIMES_SUMMARY frames:
-//   dlaa times: gpu camera motion a ms, DLSS b ms (frames timed); cpu: recorder drain c ms, NGX evaluate d ms
+// GPU timestamps around the camera motion dispatch, the per-object motion pass and DLSS's evaluation, and the CPU
+// time of NGX's call, of draining the recorder before it and of recording the object pass, summed and logged every
+// TIMES_SUMMARY frames:
+//   dlaa times: gpu camera motion a ms, object motion b ms, DLSS c ms (frames timed); cpu: recorder drain d ms, NGX
+//   evaluate e ms, object pass recording f ms
 // Each frame takes its own slot of TIMES_SLOTS; a slot's results are read when it comes round again (by then the GPU is
 // long done with it; not ready: that frame is left out). After the TotK Recomp's vk_dlaa.c timing section.
-enum { T_MV0, T_MV1, T_DL0, T_DL1, T_N };
+enum { T_MV0, T_MV1, T_OBJ, T_DL0, T_DL1, T_N };
 #define TIMES_SLOTS 8u
 #define TIMES_SUMMARY 600
 static struct {
@@ -370,8 +373,8 @@ static struct {
     VkQueryPool pool;
     uint32_t slot;
     int used[TIMES_SLOTS];       // the slot holds a frame's timestamps (all T_N written)
-    double gpu[2];               // ms summed: camera motion, DLSS
-    uint64_t frames, cpu_drain, cpu_ngx;   // ns summed
+    double gpu[3];               // ms summed: camera motion, object motion, DLSS
+    uint64_t frames, cpu_drain, cpu_ngx, cpu_mv;   // ns summed
 } T = {.on = -1};
 
 static int times_on(void) {
@@ -397,13 +400,15 @@ static void times_begin(VkCommandBuffer cb) {
         if (vkGetQueryPoolResults(vk_ctx()->device, T.pool, T.slot * T_N, T_N, sizeof q, q, sizeof q[0],
                                   VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
             double ms = vk_ctx()->props.limits.timestampPeriod / 1e6;   // ticks to ms
-            T.gpu[0] += (double)(q[T_MV1] - q[T_MV0]) * ms, T.gpu[1] += (double)(q[T_DL1] - q[T_DL0]) * ms;
+            T.gpu[0] += (double)(q[T_MV1] - q[T_MV0]) * ms, T.gpu[1] += (double)(q[T_OBJ] - q[T_MV1]) * ms;
+            T.gpu[2] += (double)(q[T_DL1] - q[T_DL0]) * ms;
             if (++T.frames % TIMES_SUMMARY == 0) {
-                rt_log("dlaa times: gpu camera motion %.3f ms, DLSS %.3f ms (%llu frames timed); cpu: recorder drain "
-                       "%.3f ms, NGX evaluate %.3f ms",
-                       T.gpu[0] / TIMES_SUMMARY, T.gpu[1] / TIMES_SUMMARY, (unsigned long long)T.frames,
-                       T.cpu_drain / 1e6 / TIMES_SUMMARY, T.cpu_ngx / 1e6 / TIMES_SUMMARY);
-                T.gpu[0] = T.gpu[1] = 0, T.cpu_drain = T.cpu_ngx = 0;
+                rt_log("dlaa times: gpu camera motion %.3f ms, object motion %.3f ms, DLSS %.3f ms (%llu frames timed); "
+                       "cpu: recorder drain %.3f ms, NGX evaluate %.3f ms, object pass recording %.3f ms",
+                       T.gpu[0] / TIMES_SUMMARY, T.gpu[1] / TIMES_SUMMARY, T.gpu[2] / TIMES_SUMMARY,
+                       (unsigned long long)T.frames, T.cpu_drain / 1e6 / TIMES_SUMMARY, T.cpu_ngx / 1e6 / TIMES_SUMMARY,
+                       T.cpu_mv / 1e6 / TIMES_SUMMARY);
+                T.gpu[0] = T.gpu[1] = T.gpu[2] = 0, T.cpu_drain = T.cpu_ngx = T.cpu_mv = 0;
             }
         }
     }
@@ -498,7 +503,8 @@ static int inv4(const double m[16], double o[16]) {
 
 // The pass, recorded through the recorder like the replay's own commands. 0: no camera this frame, or none last frame
 // (the vectors stay zero and DLSS starts a new history).
-static int mv_pass(VkCommandBuffer cb, const struct Size *e, VkImageView zv, float jx, float jy) {
+static int mv_pass(VkExec *ex, const struct Size *e, VkImageView zv, float jx, float jy) {
+    VkCommandBuffer cb = ex->cb;
     uint32_t w = e->w, h = e->h;
     const float *cr = mv_init() && D.cam_addr ? (const float *)vk_usnap_bytes(D.cam_addr + CAM_VP, 64) : NULL;
     if (!cr) {
@@ -543,6 +549,11 @@ static int mv_pass(VkCommandBuffer cb, const struct Size *e, VkImageView zv, flo
     vkCmdDispatch(cb, (w + 7) / 8, (h + 7) / 8, 1);
     full_barrier(cb);
     times_mark(cb, T_MV1);
+    // what moves on its own over the camera's motion (vk_exec_draw.c, per-object motion)
+    uint64_t c0 = T.on > 0 ? kern_now_ns() : 0;
+    if (vk_mvobj_execute(ex, D.cam_addr, e->mv_view, &D.depth, w, h)) full_barrier(cb);
+    if (T.on > 0) T.cpu_mv += kern_now_ns() - c0;
+    times_mark(cb, T_OBJ);
     if (T.on > 0) T.used[T.slot] = 1;   // the DLSS marks follow in evaluate
     D.mv_frames++;
     return 1;
@@ -564,6 +575,15 @@ void vk_dlaa_viewport(VkExec *ex, VkViewport *v) {
     v->x += D.jx, v->y += D.jy;
     D.ux = D.jx, D.uy = D.jy, D.jit_used = 1;
 }
+
+int vk_dlaa_available(void) { return dl_active(); }
+
+int vk_dlaa_scene_draw(const VkExec *ex) {
+    const VkImage z = ex->depth.image;
+    return dl_active() && !D.ended && z && ((D.armed && z == D.depth.image) || (D.jdepth && z == D.jdepth));
+}
+
+void vk_dlaa_jitter(float j[2]) { j[0] = D.jit_ok ? D.jx : 0.0f, j[1] = D.jit_ok ? D.jy : 0.0f; }
 
 // The camera block is the vertex stage's c3 (256 bytes, the layout in dlaa_mv.comp) of a draw with the scene depth: the
 // armed pass's, or before arming (the depth prepass) the depth of the last frame DLAA ran on. The shadow map passes
@@ -648,7 +668,7 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
     float jx = D.jit_used ? D.ux : 0.0f, jy = D.jit_used ? D.uy : 0.0f;
     static int no_mv = -1;
     if (no_mv < 0) no_mv = !rt_knob("DLAA_MV", "1");   // AC_DLAA_MV=0: zero motion (test)
-    if (no_mv || !mv_pass(cb, e, zv, jx, jy)) {
+    if (no_mv || !mv_pass(ex, e, zv, jx, jy)) {
         VkClearColorValue zero = {{0, 0, 0, 0}};
         VkImageSubresourceRange all = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdClearColorImage(cb, e->mv, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &all);
@@ -724,6 +744,7 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
     if (timed) T.cpu_ngx += kern_now_ns() - c0;
     if (!NGX_OK(r)) return dl_fail("DLSS evaluation", r);
     if (timed) times_mark(cb, T_DL1);   // through the recorder, after NGX's own commands
+    vk_mvprev_swap();   // the objects' blocks of this frame become last frame's for the next
     D.reset = 0;
     D.last = e, e->used = D.evals + 1;
     full_barrier(cb);
@@ -874,4 +895,7 @@ void vk_dlaa_frame(void) {}
 void vk_dlaa_draw(VkExec *ex) { (void)ex; }
 void vk_dlaa_viewport(VkExec *ex, VkViewport *v) { (void)ex, (void)v; }
 int vk_dlaa_skip_draw(VkExec *ex, const GfxShader *fs) { (void)ex, (void)fs; return 0; }
+int vk_dlaa_available(void) { return 0; }
+int vk_dlaa_scene_draw(const VkExec *ex) { (void)ex; return 0; }
+void vk_dlaa_jitter(float j[2]) { j[0] = j[1] = 0; }
 #endif
