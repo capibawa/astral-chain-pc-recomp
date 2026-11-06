@@ -38,3 +38,10 @@ int vk_mvprev_on(void);
 int vk_mvprev_blocks(uint64_t key, uint32_t banks, const p_bind_buf ubo[], uint64_t max, VkDescriptorBufferInfo prev[17],
                      uint32_t *have, uint32_t *changed);
 void vk_mvprev_swap(void);   // after DLSS ran: this frame's copies become last frame's
+// vk_mvcheck.c (AC_MV_CHECK, test): mv_pass hands it the motion image after the camera pass and, after the object
+// pass, the motion image again and the scene light target it ran on; it measures how well the vectors fit the picture.
+void vk_mvcheck_camera(VkCommandBuffer cb, VkImage mv, uint32_t w, uint32_t h, float jx, float jy);
+void vk_mvcheck_final(VkCommandBuffer cb, uint64_t fence, VkImage mv, VkImage cimg, VkFormat cfmt, uint32_t level,
+                      uint32_t layer, uint32_t w, uint32_t h, float jx, float jy);
+void vk_mvcheck_output(VkCommandBuffer cb, VkImage out, uint32_t ow, uint32_t oh);   // after DLSS on a check frame
+const char *vk_mvobj_frame_masks(void);   // vk_exec_draw.c: the last motion list's draw count
