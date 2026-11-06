@@ -126,9 +126,10 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   frame, so `vk_mvprev.c` keeps its own copy of each object's blocks and finds the object again next frame by its draw
   (program, index and vertex buffers, counts) and position; objects whose blocks did not change are left to the camera's
   vectors. `dlss_preset` picks the DLSS model (default: NVIDIA's per mode, K for DLAA); `AC_DLAA_TIMES=1` logs its GPU
-  and CPU cost and `AC_DLAA_MVDEBUG=1` shows the motion vectors in place of the picture. `AC_MV_CHECK=<frames>` measures
-  how well the vectors explain the picture (warp and end-point errors of the camera's and the final vectors). `fxaa`
-  switches the game's own SMAA (its edge, weight and blending passes).
+  and CPU cost and `AC_DLAA_MVDEBUG=1` shows the motion vectors in place of the picture. `dlss_char_mask` (off by
+  default) adds DLSS's bias mask where pixels move on their own and where they were last frame. `AC_MV_CHECK=<frames>`
+  measures how well the vectors explain the picture (warp and end-point errors of the camera's and the final vectors).
+  `fxaa` switches the game's own SMAA (its edge, weight and blending passes).
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). The CPU decoder (`tex_astc*.c`) is the fallback and the test oracle.
 - Draw state. A draw whose program, bound state and textures repeat reuses the previous draw's shaders and skips rebuilding its descriptor sets; descriptor sets are written through update templates (`vk_exec_draw.c`, `vk_pipeline.c`).
