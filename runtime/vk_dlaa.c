@@ -251,6 +251,7 @@ static struct {
     uint64_t holds;
     // camera (vk_dlaa_draw) and motion vectors (mv_pass)
     uint64_t cam_addr;           // this frame's scene camera block (c3 of a scene draw's vertex stage), 0: none seen
+    struct { uint64_t addr; uint32_t n; } cams[4];   // this frame's camera blocks and the scene draws that bound each
     double cam_prev[16];         // last frame's view-projection, for the reprojection
     int cam_prev_ok;             // cam_prev holds last frame's
     VkBuffer mvm;                // MVM_SLOTS reprojection matrices for dlaa_mv.comp, host-visible
@@ -263,6 +264,9 @@ static struct {
     VkSampler mv_samp;
     int mv_ok;                   // -1 not built, 0 failed, 1 ready
     uint64_t mv_frames, mv_none, masked;   // masked: frames with the characters' bias mask
+    uint64_t cuts;                         // camera cuts (mv_pass): a new history
+    double view_prev[16];                  // last frame's view (rows 0-3 of the camera block), for cuts
+    int view_ok;
     uint64_t why[3];             // history resets: scene size changed, no camera, scene target changed
     int on;                      // the dlaa setting, read at each present (the menu switches it live)
     int preset, preset_dirty;    // the DLSS model features are created with (preset_value); a change pending
@@ -439,6 +443,8 @@ static void times_begin(VkCommandBuffer cb) {
 #define CAM_BYTES 256u   // vec4 rows 0-15: view, projection, view-projection (8-11), inverse view
 #define CAM_VP 128u      // byte offset of the view-projection in the block
 #define MVM_SLOTS 16u    // frames the GPU may still be reading the reprojection blocks of
+#define CUT_DEG 30.0     // a camera cut: the view turned more than this in one frame (degrees)
+#define CUT_DIST 5.0     // or moved more than this (units, metres)
 
 static int mv_init(void) {
     if (D.mv_ok >= 0) return D.mv_ok;
@@ -574,9 +580,10 @@ static int mv_pass(VkExec *ex, struct Size *e, VkImageView zv, float jx, float j
     uint32_t w = e->w, h = e->h;
     *masked = 0;
     const float *cr = mv_init() && D.cam_addr ? (const float *)vk_usnap_bytes(D.cam_addr + CAM_VP, 64) : NULL;
+    const float *vw = cr ? (const float *)vk_usnap_bytes(D.cam_addr, 64) : NULL;   // the view (rows 0-3), for cuts
     if (!cr) {
         D.mv_none++;
-        D.cam_prev_ok = 0, e->obj_ok = 0;
+        D.cam_prev_ok = 0, D.view_ok = 0, e->obj_ok = 0;
         return 0;
     }
     // this frame's view-projection as the snapshot holds it; kept as last frame's for the next
@@ -593,6 +600,29 @@ static int mv_pass(VkExec *ex, struct Size *e, VkImageView zv, float jx, float j
     memcpy(D.cam_prev, cur_vp, sizeof cur_vp);
     D.cam_prev_ok = 1;
     if (!have_m) return e->obj_ok = 0;   // nothing to reproject into: zero motion, new history
+    // A camera cut (a cutscene's next shot, a respawn): the view turned more than CUT_DEG or moved more than CUT_DIST
+    // units (metres) in one frame, which no continuous camera does at 60 fps. The view, not the picture, is compared: a
+    // cutscene's fast zoom moves the picture's corners by half the screen a frame for seconds. The history is then of
+    // another shot, so DLSS starts a new one from zero motion, as NVIDIA's DLSS guide asks for cuts.
+    if (vw && D.view_ok) {
+        double tr = 0, dist2 = 0;   // trace of R_prev R_cur^T; camera positions -R^T t
+        double pc[3] = {0, 0, 0}, pp[3] = {0, 0, 0};
+        for (int r = 0; r < 3; r++)
+            for (int k = 0; k < 3; k++) tr += D.view_prev[r * 4 + k] * vw[r * 4 + k];
+        for (int k = 0; k < 3; k++)
+            for (int r = 0; r < 3; r++) pc[k] -= vw[r * 4 + k] * vw[r * 4 + 3], pp[k] -= D.view_prev[r * 4 + k] * D.view_prev[r * 4 + 3];
+        for (int k = 0; k < 3; k++) dist2 += (pc[k] - pp[k]) * (pc[k] - pp[k]);
+        double c = (tr - 1) / 2, deg = acos(c > 1 ? 1 : c < -1 ? -1 : c) * 57.29577951308232;
+        if (deg > CUT_DEG || dist2 > CUT_DIST * CUT_DIST) {
+            for (int i = 0; i < 16; i++) D.view_prev[i] = vw[i];
+            if (++D.cuts <= 20)
+                rt_log("dlaa: camera cut at DLAA frame %llu (turned %.0f degrees, moved %.1f): new history",
+                       (unsigned long long)D.evals, deg, sqrt(dist2));
+            return e->obj_ok = 0;
+        }
+    }
+    if (vw) for (int i = 0; i < 16; i++) D.view_prev[i] = vw[i];
+    D.view_ok = vw != NULL;
     uint32_t ms = D.mvm_slot++ % MVM_SLOTS;
     float *blk = (float *)(D.mvm_map + (size_t)ms * D.mvm_stride);
     for (int i = 0; i < 16; i++) blk[i] = (float)m[i];
@@ -689,9 +719,21 @@ void vk_dlaa_draw(VkExec *ex) {
     if (!dl_active() || D.ended) return;
     const p_bind_buf *b = &ex->ubo[0][0];   // constant bank c3: the replay keeps user banks from c3 on
     const VkExecTarget *z = &ex->depth;
-    if (b->size == CAM_BYTES && b->addr && z->image &&
-        ((D.armed && z->image == D.depth.image) || (D.jdepth && z->image == D.jdepth)))
-        D.cam_addr = b->addr;
+    if (!(b->size == CAM_BYTES && b->addr && z->image &&
+          ((D.armed && z->image == D.depth.image) || (D.jdepth && z->image == D.jdepth))))
+        return;
+    // the block most scene draws bind: a few draws into the scene depth bind another camera block (measured in the
+    // night highway save, where the last one seen alternated between two cameras 160 units apart)
+    int i = 0, low = 0;
+    for (; i < 4 && D.cams[i].addr && D.cams[i].addr != b->addr; i++)
+        if (D.cams[i].n < D.cams[low].n) low = i;
+    if (i == 4) i = low, D.cams[i].addr = b->addr, D.cams[i].n = 0;   // full: the rarest makes room
+    D.cams[i].addr = b->addr, D.cams[i].n++;
+    if (D.cams[i].addr != D.cam_addr) {
+        uint32_t best = 0;
+        for (int k = 0; k < 4; k++)
+            if (D.cams[k].addr && D.cams[k].n > best) best = D.cams[k].n, D.cam_addr = D.cams[k].addr;
+    }
 }
 
 // The jitter moves on right after DLAA ran, not at the present: the replay can record the next frame's scene before
@@ -881,11 +923,11 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
     if (++D.evals == 1 || D.evals == 300 || D.evals % 3600 == 0)   // 300: one early line with the frames counted
         rt_log("dlaa: %llu frames anti-aliased (scene %ux%u, output %ux%u; %llu frames without the DLAA point, %llu with camera "
                "motion, %llu with the characters' mask, %llu without a camera, %llu jitter holds; resets: %llu size, %llu "
-               "camera, %llu target)",
+               "camera (%llu cuts), %llu target)",
                (unsigned long long)D.evals, w, h, ow, oh, (unsigned long long)D.frames_missed,
                (unsigned long long)D.mv_frames, (unsigned long long)D.masked, (unsigned long long)D.mv_none,
                (unsigned long long)D.holds, (unsigned long long)D.why[0], (unsigned long long)D.why[1],
-               (unsigned long long)D.why[2]);
+               (unsigned long long)D.cuts, (unsigned long long)D.why[2]);
 }
 
 static int scene_color(VkFormat f) {
@@ -950,6 +992,7 @@ void vk_dlaa_frame(void) {
     if (!D.done) D.jit_ok = 0;
     D.armed = D.done = D.jit_used = D.gbuf = D.ended = D.up = 0;
     D.cam_addr = 0;
+    memset(D.cams, 0, sizeof D.cams);
 }
 
 // ---------------------------------------------------------------- the game's anti-aliasing (AC_FXAA, live)
