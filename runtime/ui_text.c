@@ -142,8 +142,8 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                 "leaves those edges a little less smooth. Applies at once.",
     [UI_MENU_DLSS_CHARS_OFF] = "Off", [UI_MENU_DLSS_CHARS_LIGHT] = "Light", [UI_MENU_DLSS_CHARS_MEDIUM] = "Medium",
     [UI_MENU_DLSS_CHARS_FULL] = "Full",
-    [UI_MENU_FXAA] = "Game anti-aliasing (SMAA)",
-    [UI_MENU_FXAA_DESC] = "The game's own SMAA edge smoothing. With DLAA on it is not needed, and off saves its three "
+    [UI_MENU_SMAA] = "Game anti-aliasing (SMAA)",
+    [UI_MENU_SMAA_DESC] = "The game's own SMAA edge smoothing. With DLAA on it is not needed, and off saves its three "
                           "passes.",
 
     [UI_MENU_FPS_LIMIT] = "Frame rate",
@@ -540,8 +540,8 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                 "чуть менее гладкие края. Действует сразу.",
     [UI_MENU_DLSS_CHARS_OFF] = "Выкл.", [UI_MENU_DLSS_CHARS_LIGHT] = "Слабо", [UI_MENU_DLSS_CHARS_MEDIUM] = "Средне",
     [UI_MENU_DLSS_CHARS_FULL] = "Полностью",
-    [UI_MENU_FXAA] = "Сглаживание игры (SMAA)",
-    [UI_MENU_FXAA_DESC] = "Собственное сглаживание SMAA. С DLAA оно не нужно, а выключенное экономит три его прохода.",
+    [UI_MENU_SMAA] = "Сглаживание игры (SMAA)",
+    [UI_MENU_SMAA_DESC] = "Собственное сглаживание SMAA. С DLAA оно не нужно, а выключенное экономит три его прохода.",
 
     [UI_MENU_FPS_LIMIT] = "Частота кадров",
     [UI_MENU_FPS_LIMIT_DESC] = "60 FPS включает патч игры на 60 кадров; 30 FPS отключает его. Читается на лету.",
@@ -1212,8 +1212,8 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
                                 "deixa essas bordas um pouco menos suaves. Vale na hora.",
     [UI_MENU_DLSS_CHARS_OFF] = "Desligado", [UI_MENU_DLSS_CHARS_LIGHT] = "Leve", [UI_MENU_DLSS_CHARS_MEDIUM] = "Médio",
     [UI_MENU_DLSS_CHARS_FULL] = "Total",
-    [UI_MENU_FXAA] = "Antisserrilhado do jogo (SMAA)",
-    [UI_MENU_FXAA_DESC] = "A suavização de bordas SMAA do próprio jogo. Com o DLAA ligado não é necessária, e desligada "
+    [UI_MENU_SMAA] = "Antisserrilhado do jogo (SMAA)",
+    [UI_MENU_SMAA_DESC] = "A suavização de bordas SMAA do próprio jogo. Com o DLAA ligado não é necessária, e desligada "
                           "poupa as suas três passagens.",
     [UI_MENU_TAB_CHEATS] = "Cheats",
     [UI_MENU_CHEATS_NONE] = "Nenhum cheat para esta versão do jogo. Os cheats de um mod são um arquivo de cheats do "
@@ -1734,8 +1734,8 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
                                 "越强拖影越少，这些边缘也略欠平滑。立即生效。",
     [UI_MENU_DLSS_CHARS_OFF] = "关", [UI_MENU_DLSS_CHARS_LIGHT] = "弱", [UI_MENU_DLSS_CHARS_MEDIUM] = "中",
     [UI_MENU_DLSS_CHARS_FULL] = "强",
-    [UI_MENU_FXAA] = "游戏抗锯齿（SMAA）",
-    [UI_MENU_FXAA_DESC] = "游戏自身的 SMAA 边缘平滑。开启 DLAA 时不需要，关闭可省去它的三个渲染步骤。",
+    [UI_MENU_SMAA] = "游戏抗锯齿（SMAA）",
+    [UI_MENU_SMAA_DESC] = "游戏自身的 SMAA 边缘平滑。开启 DLAA 时不需要，关闭可省去它的三个渲染步骤。",
     [UI_MENU_TAB_CHEATS] = "金手指",
     [UI_MENU_CHEATS_NONE] = "此游戏版本没有金手指。模组的金手指是它的 cheats 文件夹中以游戏构建命名的 Atmosphere "
                             "金手指文件：mods\\<模组>\\cheats\\%s。重启游戏后才会读取。对于修改游戏代码的金手指，"

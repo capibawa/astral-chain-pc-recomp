@@ -154,7 +154,7 @@ typedef struct {
                                                                // their pass, in-pass barriers, pass restarts, layout
                                                                // transitions
     uint64_t dropped[VK_DROP_N];         // VK_DROP_*: no program bound, render disabled, empty scissor, zero count,
-                                         // other (no vertex stage, untranslatable shader, AC_SKIP_*, FXAA off)
+                                         // other (no vertex stage, untranslatable shader, AC_SKIP_*, SMAA off)
 } VkExecFrame;
 extern VkExecFrame vk_exec_frame;
 void vk_exec_frame_written(const tex_t *t);                    // vk_texture_gpu_written: t rendered or copied into
