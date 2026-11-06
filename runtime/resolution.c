@@ -313,6 +313,8 @@ void res_game_size(unsigned out[2]) {
     }
 }
 
+float vk_render_scale(void);   // vk_texture.c: AC_SSAA's factor, from the game resolution res_game_size gives
+
 // ---- 1.0.1: the scene set alone (recomp/patches-v101.txt). The output stays the game resolution (res1080, res1062 or
 // the game's own 1600x900) and only the scene changes, to the DLSS mode's share of it: the game's dynamic-resolution
 // levels all take the size on page +16 ({w, h} as floats, read by rt_res_scene_w1 / rt_res_scene_h2 below), and the
@@ -322,16 +324,31 @@ void res_game_size(unsigned out[2]) {
 // runs (res_dlss_mode): dlaa gives every level the game resolution. That also takes level 2's 1280-wide scene out of
 // the res1080 set (its width is not one of res1080's sites), which DLAA otherwise ran on in some frames.
 
-// The scene for a share k of the game resolution g: 16:9 in steps of 32x18 (640x360, 960x540, 1120x630, 1280x720), the
-// shape of the game's own levels. The plain share of 1920x1080 in Balanced, 1114x626, lost the device at the first 3D
-// frame (RTX 5070 Ti, at 1080p and at ssaa = 2160p alike); 1120x630 plays. k = 0: the game resolution itself.
+// The scene for a share k of the game resolution g. The first 3D frame loses the device (RTX 5070 Ti) unless the scene
+// is 32n x 18n as the game sees it and also on that grid at the size ssaa makes of it, with or without DLSS evaluating
+// (AC_DLAA_MV and the object pass off changed nothing either; the device fault names only shader instructions, so the
+// cause is a pass of the game's or the runtime's, not found yet). Measured at 1920x1080: 1120x630 plays; 1114x626,
+// 1120x626, 1114x630, 1136x640 and 1104x621 do not. At ssaa = 1440p (x 4/3): 1248x702 (1664x936) plays; 1280x720
+// (1707x960) and 1296x729 (1728x972) do not. So the nearest n whose scene stays on the grid after ssaa: at 2160p
+// every n (1280x720, 1120x630, 960x540, 640x360), at 1440p a multiple of 3 (1248x702, 1152x648, 960x540, 672x378). None
+// but the game resolution (res1062 with ssaa): that, and DLSS runs as DLAA. k = 0: the game resolution itself.
+static int scene_on_grid(unsigned n, float ssaa) {
+    return lroundf((float)(32 * n) * ssaa) % 32 == 0 && lroundf((float)(18 * n) * ssaa) % 18 == 0;
+}
+
 static void scene_for(double k, const unsigned g[2], unsigned *w, unsigned *h) {
-    if (!k) {
-        *w = g[0], *h = g[1];
-        return;
-    }
-    unsigned n = (unsigned)lround(g[0] * k / 32);
-    *w = 32 * n, *h = 18 * n;
+    *w = g[0], *h = g[1];
+    if (!k) return;
+    float ssaa = vk_render_scale();
+    int want = (int)lround(g[0] * k / 32), most = (int)(g[0] / 32);
+    for (int d = 0; d < most; d++)
+        for (int n = want - d; n <= want + d; n += d ? 2 * d : 1)
+            if (n >= 1 && n < most && scene_on_grid((unsigned)n, ssaa)) {
+                *w = 32 * (unsigned)n, *h = 18 * (unsigned)n;
+                return;
+            }
+    rt_log("resolution: no scene near %.0f %% of %ux%u stays on the 32x18 grid at ssaa x%.4g: DLSS runs as DLAA", k * 100,
+           g[0], g[1], ssaa);
 }
 
 static void scene_page(unsigned w, unsigned h) {

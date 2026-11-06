@@ -136,9 +136,11 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   keeps three dynamic-resolution levels, each with its own scene targets, and draws its output and HUD at the render
   size `res1080` sets. With DLSS able to run (`dlaa = 1`, `nvngx_dlss.dll` there) the `scene` patch set
   (`recomp/patches-v101.txt`) gives every level the size `resolution.c` writes on the patch page: 1920x1080 for `dlaa`,
-  1280x720, 1120x630, 960x540 or 640x360 for the others (16:9 in steps of 32x18; 1114x626 lost the device). A mode
-  change in the menu makes the framework's per-frame window update (0x9db520), on the game's thread, write the new size
-  and report a display
+  1280x720, 1120x630, 960x540 or 640x360 for the others. The scene must be 32n x 18n both as the game sees it and after
+  `ssaa`, or the first 3D frame loses the device, with or without DLSS evaluating (the failing pass is not identified:
+  `resolution.c` `scene_for` lists the measured sizes). So at `ssaa = 1440p` the modes render 1248x702, 1152x648, 960x540
+  and 672x378, and with `res1062` and `ssaa`, where no smaller size fits, DLSS runs as DLAA. A mode change in the menu
+  makes the framework's per-frame window update (0x9db520), on the game's thread, write the new size and report a display
   change, so the game runs its own docked / handheld sequence, which rebuilds the scene targets at the next frame
   (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). The whole scene chain, bloom and composite
   included, then runs at that size and the game's SMAA blending pass scales it to the output. DLSS runs on the
