@@ -223,6 +223,11 @@
 # every mode, the sharpest) or j (slightly less ghosting behind moving characters, a little more flicker). Any single
 # letter a to m picks that model. Changes while the game runs take effect at once.
 # dlss_preset = default
+# Trails behind moving characters, Legions and enemies: how strongly DLSS favours the current frame where they are and
+# just were, in percent: 0 (off), 35, 65 or 100. Stronger removes more of the faint trails and leaves those edges a
+# little less smooth. Off by default: with the per-object motion vectors DLSS already follows them. Changes while the
+# game runs take effect at once.
+# dlss_char_mask = 0
 # The game's own anti-aliasing (SMAA, the key keeps its old name) after the post effects; with DLAA on it is not
 # needed, and 0 saves its three passes. Changes while the game runs take effect at once.
 # fxaa = 1

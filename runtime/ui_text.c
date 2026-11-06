@@ -136,6 +136,12 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                  "little more flicker. K: the sharpest model in every mode. Applies at once.",
     [UI_MENU_DLSS_PRESET_DEFAULT] = "Automatic", [UI_MENU_DLSS_PRESET_K] = "K (sharpest)",
     [UI_MENU_DLSS_PRESET_J] = "J (less ghosting)",
+    [UI_MENU_DLSS_CHARS] = "DLSS character trails",
+    [UI_MENU_DLSS_CHARS_DESC] = "Reduces the faint trails behind moving characters, Legions, enemies and what they hold: "
+                                "DLSS takes less of the previous frames there. Stronger removes more of the trails and "
+                                "leaves those edges a little less smooth. Applies at once.",
+    [UI_MENU_DLSS_CHARS_OFF] = "Off", [UI_MENU_DLSS_CHARS_LIGHT] = "Light", [UI_MENU_DLSS_CHARS_MEDIUM] = "Medium",
+    [UI_MENU_DLSS_CHARS_FULL] = "Full",
     [UI_MENU_FXAA] = "Game anti-aliasing (SMAA)",
     [UI_MENU_FXAA_DESC] = "The game's own SMAA edge smoothing. With DLAA on it is not needed, and off saves its three "
                           "passes.",
@@ -528,6 +534,12 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                  "режимах. Действует сразу.",
     [UI_MENU_DLSS_PRESET_DEFAULT] = "Автоматически", [UI_MENU_DLSS_PRESET_K] = "K (самая чёткая)",
     [UI_MENU_DLSS_PRESET_J] = "J (меньше шлейфов)",
+    [UI_MENU_DLSS_CHARS] = "Шлейфы персонажей в DLSS",
+    [UI_MENU_DLSS_CHARS_DESC] = "Убирает слабые шлейфы за движущимися персонажами, Легионами, врагами и тем, что они "
+                                "держат: DLSS берёт там меньше от прошлых кадров. Чем сильнее, тем меньше шлейфов и тем "
+                                "чуть менее гладкие края. Действует сразу.",
+    [UI_MENU_DLSS_CHARS_OFF] = "Выкл.", [UI_MENU_DLSS_CHARS_LIGHT] = "Слабо", [UI_MENU_DLSS_CHARS_MEDIUM] = "Средне",
+    [UI_MENU_DLSS_CHARS_FULL] = "Полностью",
     [UI_MENU_FXAA] = "Сглаживание игры (SMAA)",
     [UI_MENU_FXAA_DESC] = "Собственное сглаживание SMAA. С DLAA оно не нужно, а выключенное экономит три его прохода.",
 
@@ -1194,6 +1206,12 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
                                  "todos os modos. Vale na hora.",
     [UI_MENU_DLSS_PRESET_DEFAULT] = "Automático", [UI_MENU_DLSS_PRESET_K] = "K (mais nítido)",
     [UI_MENU_DLSS_PRESET_J] = "J (menos rastro)",
+    [UI_MENU_DLSS_CHARS] = "Rastros de personagens no DLSS",
+    [UI_MENU_DLSS_CHARS_DESC] = "Reduz os rastros fracos atrás de personagens, Legions, inimigos e do que eles seguram em "
+                                "movimento: ali o DLSS usa menos dos quadros anteriores. Mais forte remove mais rastros e "
+                                "deixa essas bordas um pouco menos suaves. Vale na hora.",
+    [UI_MENU_DLSS_CHARS_OFF] = "Desligado", [UI_MENU_DLSS_CHARS_LIGHT] = "Leve", [UI_MENU_DLSS_CHARS_MEDIUM] = "Médio",
+    [UI_MENU_DLSS_CHARS_FULL] = "Total",
     [UI_MENU_FXAA] = "Antisserrilhado do jogo (SMAA)",
     [UI_MENU_FXAA_DESC] = "A suavização de bordas SMAA do próprio jogo. Com o DLAA ligado não é necessária, e desligada "
                           "poupa as suas três passagens.",
@@ -1711,6 +1729,11 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
                                  "J：移动角色身后的拖影略少，闪烁略多。K：所有模式都用最清晰的模型。立即生效。",
     [UI_MENU_DLSS_PRESET_DEFAULT] = "自动", [UI_MENU_DLSS_PRESET_K] = "K（最清晰）",
     [UI_MENU_DLSS_PRESET_J] = "J（拖影更少）",
+    [UI_MENU_DLSS_CHARS] = "DLSS 角色拖影",
+    [UI_MENU_DLSS_CHARS_DESC] = "减少移动中的角色、Legion、敌人及其手持物品身后的淡淡拖影：DLSS 在这些位置少用之前的帧。"
+                                "越强拖影越少，这些边缘也略欠平滑。立即生效。",
+    [UI_MENU_DLSS_CHARS_OFF] = "关", [UI_MENU_DLSS_CHARS_LIGHT] = "弱", [UI_MENU_DLSS_CHARS_MEDIUM] = "中",
+    [UI_MENU_DLSS_CHARS_FULL] = "强",
     [UI_MENU_FXAA] = "游戏抗锯齿（SMAA）",
     [UI_MENU_FXAA_DESC] = "游戏自身的 SMAA 边缘平滑。开启 DLAA 时不需要，关闭可省去它的三个渲染步骤。",
     [UI_MENU_TAB_CHEATS] = "金手指",
