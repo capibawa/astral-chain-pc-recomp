@@ -428,19 +428,25 @@ void res_game_size(unsigned out[2]) {
 // game's own scaling pass draws the scene to the output, where vk_dlaa.c runs DLSS in its place. The scene is never
 // larger than the targets the game already makes, so the texture heap needs nothing more.
 // With DLSS able to run (dlaa = 1, nvngx_dlss.dll there) the set is always on, so the mode can change while the game
-// runs (res_dlss_mode): dlaa gives every level the game resolution. That also takes level 2's 1280-wide scene out of
-// the res1080 set (its width is not one of res1080's sites), which DLAA otherwise ran on in some frames.
+// runs (res_dlss_mode): dlaa gives every level the game resolution.
 
-// The scene for a share k of the game resolution g: 16:9 in steps of 32x18 (640x360, 960x540, 1120x630, 1280x720), the
-// shape of the game's own levels. The plain share of 1920x1080 in Balanced, 1114x626, lost the device at the first 3D
-// frame (RTX 5070 Ti, at 1080p and at ssaa = 2160p alike); 1120x630 plays. k = 0: the game resolution itself.
+// The scene for a share k of the game resolution g. The first 3D frame loses the device (RTX 5070 Ti) unless the scene
+// is 32n x 18n, with or without DLSS evaluating (AC_DLAA_MV and the object pass off changed nothing either; the device
+// fault names only shader instructions, so the cause is a pass of the game's or the runtime's, not found yet). Measured
+// at 1920x1080: 1120x630 plays; 1114x626, 1120x626, 1114x630, 1136x640 and 1104x621 do not. The game resolutions
+// output_res offers are all on that grid (resolution.c res_output_grid), so the nearest n below the game's own width
+// is the scene: 1280x720, 1120x630, 960x540 and 640x360 at 1920x1080. None (a game resolution narrower than 64): the
+// game resolution, and DLSS runs as DLAA. k = 0: the game resolution itself.
 static void scene_for(double k, const unsigned g[2], unsigned *w, unsigned *h) {
-    if (!k) {
-        *w = g[0], *h = g[1];
+    *w = g[0], *h = g[1];
+    if (!k) return;
+    int want = (int)lround(g[0] * k / 32), most = (int)(g[0] / 32);
+    if (want >= most) want = most - 1;
+    if (want < 1) {
+        rt_log("resolution: no scene near %.0f %% of %ux%u on the 32x18 grid: DLSS runs as DLAA", k * 100, g[0], g[1]);
         return;
     }
-    unsigned n = (unsigned)lround(g[0] * k / 32);
-    *w = 32 * n, *h = 18 * n;
+    *w = 32 * (unsigned)want, *h = 18 * (unsigned)want;
 }
 
 static void scene_page(unsigned w, unsigned h) {
