@@ -137,9 +137,12 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
 - DLAA (`vk_dlaa.c`, `dlaa`, off by default). NVIDIA DLSS at the scene's own size, through the driver's NGX core loaded
   at run time (no SDK code compiled in). It runs on the R11G11B10F light target at the bloom chain's third level, after
   the light target's last pass, so the composite, post effects and the HUD read the anti-aliased picture. The scene's
-  draws get a sub-pixel Halton viewport jitter; motion vectors are camera-only, reprojected from the scene depth through
-  this and last frame's view-projection of the scene camera block (constant bank c3). `fxaa` switches the game's own
-  FXAA pass.
+  draws get a sub-pixel Halton viewport jitter (16 phases for DLAA, 8 x the squared upscaling ratio otherwise); motion
+  vectors are the camera's, reprojected from the scene depth through one matrix, last frame's view-projection of the
+  scene camera block (constant bank c3) times the inverse of this frame's, made in double precision on the CPU.
+  `dlss_preset` picks the DLSS model (default: NVIDIA's per mode, K for DLAA); `AC_DLAA_TIMES=1` logs its GPU and CPU
+  cost and `AC_DLAA_MVDEBUG=1` shows the motion vectors in place of the picture. `fxaa` switches the game's own FXAA
+  pass.
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a
   compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). A discrete GPU with 6 GB of video memory or more keeps

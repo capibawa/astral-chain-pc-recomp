@@ -228,6 +228,7 @@ void vk_usnap_end(uint64_t fence);
 int vk_usnap_find(uint64_t addr, uint64_t n, uint64_t align, VkDescriptorBufferInfo *out);
 void vk_usnap_drop(uint64_t addr, uint64_t n);   // the replay makes the GPU write [addr, addr+n) of guest memory
 uint64_t vk_usnap_gen(void);                      // changes whenever a binding may resolve differently
+const uint8_t *vk_usnap_bytes(uint64_t addr, uint64_t n);   // the snapshot's copy for the CPU, NULL: not in it
 void vk_usnap_shutdown(void);                     // vk_exec_draw_shutdown: frees the arenas
 // Giant write-back attribution (vk_exec_draw.c): per (shader, binding) aggregates of written binds of 1 MiB and up,
 // for the mirror stats line; silent while nothing was noted. AC_TRACE=perf only.
