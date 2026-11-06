@@ -196,9 +196,9 @@
 # little less smooth. Off by default: with the per-object motion vectors DLSS already follows them. Changes while the
 # game runs take effect at once.
 # dlss_char_mask = 0
-# The game's own anti-aliasing (SMAA, the key keeps its old name) after the post effects; with DLAA on it is not
-# needed, and 0 saves its three passes. Changes while the game runs take effect at once.
-# fxaa = 1
+# The game's own SMAA anti-aliasing after the post effects; with DLAA on it is not needed, and 0 saves its three
+# passes. An older file's fxaa line is read as smaa. Changes while the game runs take effect at once.
+# smaa = 1
 
 # HDR output: hdr = 1 sends the picture as HDR10 (needs HDR on in Windows, "Use HDR", or a Wayland compositor with
 # colour management; without it the picture stays SDR). The game's tonemap keeps highlights up to hdr_peak_nits (your
