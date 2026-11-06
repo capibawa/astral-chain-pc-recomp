@@ -655,7 +655,8 @@ static void tab_screen(float scale) {
     opt_toggle("AC_DLAA", UI_MENU_DLAA, UI_MENU_DLAA_DESC);
     static const UiTextId dlss[] = {UI_MENU_DLSS_DLAA, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED,
                                     UI_MENU_DLSS_PERFORMANCE};
-    opt_choice("AC_DLSS", UI_MENU_DLSS, dlss, 4, UI_MENU_DLSS_DESC);
+    // the upscaling modes lower the scene size through the scene patch set: without it there is only DLAA
+    if (rt_patch_set("scene") >= 0) opt_choice("AC_DLSS", UI_MENU_DLSS, dlss, 4, UI_MENU_DLSS_DESC);
     opt_toggle("AC_FXAA", UI_MENU_FXAA, UI_MENU_FXAA_DESC);
     rows_color();
     opt_group(UI_MENU_HDR_GROUP);

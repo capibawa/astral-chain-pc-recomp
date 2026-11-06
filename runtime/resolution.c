@@ -84,6 +84,12 @@ static void decide(void) {
         {"quality", 2.0 / 3.0}, {"balanced", 0.58}, {"performance", 0.5}};
     for (int i = 0; i < 3; i++)
         if (!strcmp(m, dlss[i].name)) R.dlss_k = dlss[i].k;
+    // Without the scene patch set (1.0.1 has none) the scene keeps the game's size: a DLSS mode would only bias the
+    // textures toward an output that is never upscaled, sharpening them into shimmer. DLSS then runs as DLAA.
+    if (R.dlss_k && rt_patch_set("scene") < 0) {
+        rt_log("resolution: DLSS %s needs the scene patch set, which this game version lacks: DLSS runs as DLAA", m);
+        R.dlss_k = 0;
+    }
     if (R.dlss_k) {
         k = R.dlss_k;
         R.scene_set = 1;

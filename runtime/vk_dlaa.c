@@ -203,15 +203,17 @@ void vk_dlaa_init(void) {
 }
 
 // ---------------------------------------------------------------- where DLAA runs in Astral Chain's frame
-// Measured (AC_DUMP, frame 2100 at Lookout Landing, 2560x1440 scene): the G-buffer passes draw into five targets with
-// the scene depth (d32f at the scene size), one of them the R11G11B10F light target; lighting and the transparents
-// then draw into that light target alone, the last time with the scene depth attached; the first pass narrower than a
-// quarter of the scene starts the bloom chain, which reads it. After the bloom come the tonemap and post passes, then
-// the HUD is drawn into the same target and a last pass copies it to the 8-bit output.
-// So: after the G-buffer, a pass at the scene size with exactly one colour target (R11G11B10F or RGBA16F) and the D32F
-// depth arms the frame with that pair; the next pass at most a quarter as wide ends the scene (no jitter after it) and,
-// when the scene is as wide as the output, runs DLAA on the armed target first. Bloom, tonemap, post and HUD then all
-// work on the anti-aliased picture.
+// Measured (AC_DUMP, frame 4200 outside the police HQ, 1920x1080 scene, the same order at ssaa = 2160p): Astral Chain
+// renders forward. A depth-only prepass writes the scene depth (D32F_S8 at the scene size); the opaque draws, and after
+// the shadow map the rest of the opaque and the transparents, go into the R11G11B10F light target with that depth
+// (between them a full-screen copy of it and a half-size pass). The bloom chain then reads it at half size and down
+// to 1/32; a composite pass writes scene and bloom into another R11G11B10F target, the tonemap and post passes go to
+// RGBA8, and the HUD is drawn over the last of them.
+// So: after the depth prepass, a pass at the scene size with exactly one colour target (R11G11B10F or RGBA16F) and
+// the scene depth arms the frame with that pair; the next pass at most a quarter as wide (the bloom's third level,
+// after the light target's last pass) ends the scene (no jitter after it) and, when the scene is as wide as the
+// output, runs DLAA on the armed target first. The bloom's first two levels have read the scene unresolved, which
+// their blur hides; the composite, post and HUD work on the anti-aliased picture.
 // Upscaling (a scene smaller than the output: AC_DLSS quality/balanced/performance, or the game's own 5/6): measured
 // at a 960x536 scene, 1920x1080 output, the bloom and its composite write back into the light target at the scene size,
 // then one full-screen draw (the FXAA shader below, which also scales) reads it into an output-sized R11G11B10F target
@@ -230,7 +232,7 @@ static struct {
         NgxHandle *feat;
         uint64_t used;           // evals count when it last ran
     } sizes[3], *last;           // last: the one the previous DLAA frame ran with
-    VkImage last_color;          // the target DLAA ran on last frame: another one means a new history
+    VkImage last_color[2];       // the targets DLAA ran on, latest first: another one means a new history
     NgxParam *params;
     int failed, reset;
     uint64_t evals, frames_missed;
@@ -242,7 +244,7 @@ static struct {
     int jit_ok, jit_used, hold;  // jitter allowed this frame / a draw used it / frames left without it
     uint64_t holds;
     // camera (vk_dlaa_draw) and motion vectors (mv_pass)
-    uint64_t cam_addr;           // this frame's scene camera block (c4 of a scene draw's vertex stage), 0: none seen
+    uint64_t cam_addr;           // this frame's scene camera block (c3 of a scene draw's vertex stage), 0: none seen
     VkBuffer camb;               // two 256-byte slots: this frame's block and last frame's
     VmaAllocation camb_mem;
     int cam_slot, cam_prev_ok;   // the slot this frame writes / the other slot holds last frame's camera
@@ -352,7 +354,7 @@ static NgxResourceVK res_image(VkImageView v, VkImage img, VkFormat f, uint32_t 
 // uniform snapshot (vk_usnap.c, as of the submit call) into one slot of camb, last frame's stays in the other, and the
 // compute pass reprojects every pixel's depth through both. Characters and anything else that moves on its own get
 // the camera's motion only, which DLSS mostly copes with by rejecting their history.
-#define CAM_BYTES 256u   // vec4 rows 0-15: view, view-projection (3-6), projection, inverse view
+#define CAM_BYTES 256u   // vec4 rows 0-15: view, projection, view-projection (8-11), inverse view
 
 static int mv_init(void) {
     if (D.mv_ok >= 0) return D.mv_ok;
@@ -366,7 +368,7 @@ static int mv_init(void) {
     VkDescriptorSetLayoutCreateInfo dci = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
                                            .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
                                            .bindingCount = 4, .pBindings = b};
-    VkPushConstantRange pr = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 16};
+    VkPushConstantRange pr = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 32};
     VkSamplerCreateInfo si = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, .magFilter = VK_FILTER_NEAREST,
                               .minFilter = VK_FILTER_NEAREST, .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
                               .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
@@ -430,7 +432,7 @@ static int mv_pass(VkCommandBuffer cb, const struct Size *e, VkImageView zv, flo
          .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .pBufferInfo = &prev}};
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, D.mv_pipe);
     rec_push(vk_pipeline_push_fn(), cb, VK_PIPELINE_BIND_POINT_COMPUTE, D.mv_layout, 0, 4, wr);
-    float pc[4] = {(float)w, (float)h, jx, jy};
+    float pc[8] = {(float)w, (float)h, jx, jy, nvn_depth_minus_w() ? 1.0f : 0.0f, 0, 0, 0};
     vkCmdPushConstants(cb, D.mv_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof pc, pc);
     vkCmdDispatch(cb, (w + 7) / 8, (h + 7) / 8, 1);
     full_barrier(cb);
@@ -455,12 +457,15 @@ void vk_dlaa_viewport(VkExec *ex, VkViewport *v) {
     D.ux = D.jx, D.uy = D.jy, D.jit_used = 1;
 }
 
+// The camera block is the vertex stage's c3 (256 bytes, the layout in dlaa_mv.comp) of a draw with the scene depth: the
+// armed pass's, or before arming (the depth prepass) the depth of the last frame DLAA ran on. The shadow map passes
+// bind another camera with another depth target, the HUD has no scene depth.
 void vk_dlaa_draw(VkExec *ex) {
     if (!dl_active() || D.ended) return;
-    const p_bind_buf *b = &ex->ubo[0][1];   // constant bank c4: the replay keeps user banks from c3 on
+    const p_bind_buf *b = &ex->ubo[0][0];   // constant bank c3: the replay keeps user banks from c3 on
     const VkExecTarget *z = &ex->depth;
-    if (b->size == 0x940 && b->addr && z->image && z->width >= 640 && z->format == VK_FORMAT_D32_SFLOAT &&
-        (!D.jdepth || z->image == D.jdepth))
+    if (b->size == CAM_BYTES && b->addr && z->image &&
+        ((D.armed && z->image == D.depth.image) || (D.jdepth && z->image == D.jdepth)))
         D.cam_addr = b->addr;
 }
 
@@ -524,7 +529,10 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
         rt_log("dlaa: DLSS feature created at %ux%u -> %ux%u, quality value %d (scene format %d, depth format %d)", w,
                h, ow, oh, perf_quality(w, ow), (int)t->format, (int)z->format);
     }
-    if (D.last_color != t->image) D.reset = 1, D.why[2]++, D.last_color = t->image;
+    // Astral Chain draws its light target into two images in turn: only one seen in neither of the last two frames
+    // starts a new history
+    if (t->image != D.last_color[0] && t->image != D.last_color[1]) D.reset = 1, D.why[2]++;
+    if (t->image != D.last_color[0]) D.last_color[1] = D.last_color[0], D.last_color[0] = t->image;
     VkImageView cv = vk_exec_target_view(t->img, t->format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, t->level,
                                          t->base_layer, 1, 0);
     NgxResourceVK rc = res_image(cv, t->image, t->format, w, h, VK_IMAGE_ASPECT_COLOR_BIT, 0);
@@ -575,20 +583,24 @@ static int scene_color(VkFormat f) {
     return f == VK_FORMAT_B10G11R11_UFLOAT_PACK32 || f == VK_FORMAT_R16G16B16A16_SFLOAT;
 }
 
+static int scene_depth(const VkExecTarget *z) {
+    return z->image && z->width >= 640 && (z->format == VK_FORMAT_D32_SFLOAT_S8_UINT || z->format == VK_FORMAT_D32_SFLOAT);
+}
+
 void vk_dlaa_pass(VkExec *ex) {
     const VkExecTarget *c = &ex->color[0], *z = &ex->depth;
     if (!dl_active() || D.done) return;
-    // The G-buffer: several colour targets with a D32F depth of at least 640 wide. Only the light target drawn after it
-    // arms the frame; at night the game draws into the light target alone with the scene depth before the G-buffer too,
-    // and DLAA then ran at a small pass ahead of the whole scene, which reached the screen jittered.
-    if (ex->pass_ncolor >= 3 && z->image && z->format == VK_FORMAT_D32_SFLOAT && z->width >= 640) {
-        D.gbuf = 1, D.armed = 0;
+    // The depth prepass: no colour target, a D32F(S8) depth at least 640 wide. Only light-target passes after it arm the
+    // frame, so nothing drawn ahead of the scene can. The shadow map passes look the same; they fall between light-target
+    // passes, so they leave the armed pair as it is.
+    if (ex->pass_ncolor == 0 && scene_depth(z)) {
+        D.gbuf = 1;
         return;
     }
-    // the scene depth is D32F; a D16 target of the scene size also serves one composite pass before the transparents
-    if (D.gbuf && ex->pass_ncolor == 1 && c->image && scene_color(c->format) && z->image && z->format == VK_FORMAT_D32_SFLOAT &&
-        c->width == z->width && c->height == z->height && c->width >= 640 &&
-        c->samples <= 1 && !c->is3d) {
+    // A light-target pass: one HDR colour target with a depth of its size. The composite after the bloom has that shape
+    // too, but comes after the end of the scene.
+    if (D.gbuf && !D.ended && ex->pass_ncolor == 1 && c->image && scene_color(c->format) && scene_depth(z) &&
+        c->width == z->width && c->height == z->height && c->samples <= 1 && !c->is3d) {
         D.color = *c, D.depth = *z, D.armed = 1;
         return;
     }
