@@ -181,6 +181,11 @@ void vk_dump_present(uint64_t frame);    // vk_be_present: waits for the dump fr
 void vk_c0_fill(uint8_t bank[VK_C0_BYTES], int stage, const p_bind_buf ssbo[16], const p_bind_buf ubo[16],
                 const uint32_t dispatch[3], uint32_t base_instance);
 
+// vk_dlaa.c: once DLSS has scaled the scene this frame, passes larger than the scene's composite target vk_dlaa_swap_img
+// sample DLSS's output vk_dlaa_swap_view in its place, so the game's scaling draw scales DLSS's picture.
+extern const VkTexImage *vk_dlaa_swap_img;
+extern VkImageView vk_dlaa_swap_view;
+
 // Handler hooks. vk_exec.c defines both WEAK: they stop with rt_fatal naming the op.
 // vk_exec_draw.c: OP_DRAW, OP_DRAW_IDX, OP_DISPATCH, OP_BIND_* (program, state, vattr, vstream, vbuf, ubo, ssbo, tex,
 // samp, img), OP_UPDATE_UB, OP_DRAW_IDX_IND, OP_DISPATCH_IND. payload: nvn_op_payload of the record.

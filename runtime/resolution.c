@@ -285,9 +285,50 @@ void res_game_size(unsigned out[2]) {
     }
 }
 
+// ---- 1.0.1: the scene set alone (recomp/patches-v101.txt). The output stays the game resolution (res1080, res1062 or
+// the game's own 1600x900) and only the scene shrinks, to the DLSS mode's share of it: the game's dynamic-resolution
+// levels all take the size on page +16 ({w, h} as floats, read by rt_res_scene_w1 / rt_res_scene_h2 below), and the
+// game's own scaling pass draws the scene to the output, where vk_dlaa.c runs DLSS in its place. The scene is smaller
+// than the targets the game already makes at 1920x1080, so the texture heap needs nothing more.
+static void scene_only_init(int set) {
+    unsigned g[2];
+    res_game_size(g);
+    if (!R.dlss_k) {
+        rt_patch_switch(set, 0);
+        return;
+    }
+    // 16:9 in steps of 32x18 (960x540, 1120x630, 1280x720), the shape of the game's own levels: the plain share of
+    // 1920x1080 in Balanced, 1114x626, lost the device at the first 3D frame (RTX 5070 Ti, at 1080p and at ssaa =
+    // 2160p alike), 1120x630 plays
+    R.ow = g[0], R.oh = g[1];
+    unsigned n = (unsigned)lround(g[0] * R.dlss_k / 32);
+    R.sw = 32 * n, R.sh = 18 * n;
+    float sc[2] = {(float)R.sw, (float)R.sh};
+    memcpy((uint8_t *)rt_patch_page() + 16, sc, sizeof sc);   // before the switch: a site that sees it on reads it
+    rt_patch_switch(set, 1);
+    R.on = 1;
+    rt_log("resolution: scene %ux%u, output %ux%u (DLSS %s; %s)", R.sw, R.sh, R.ow, R.oh, cfg_value("AC_DLSS"),
+           cfg_bool("AC_DLAA") ? "DLSS scales the scene to the output" : "dlaa = 0: the game's own scaling");
+}
+
+static unsigned page_size(int i) {
+    float v;
+    memcpy(&v, (const uint8_t *)rt_patch_page() + 16 + 4 * i, sizeof v);
+    return v >= 64.0f && v <= SCENE_MAX ? (unsigned)v : 64u;
+}
+
+// The scene set's sites (each a csel of a level's width into w1 or height into w2).
+void rt_res_scene_w1(Cpu *c) { c->x[1] = page_size(0); }
+void rt_res_scene_h2(Cpu *c) { c->x[2] = page_size(1); }
+
 void res_init(void) {
     game_res_pick();
     res_shadow_range();
+    int only = rt_patch_set("scene");
+    if (only >= 0 && rt_patch_set("output") < 0) {   // 1.0.1
+        scene_only_init(only);
+        return;
+    }
     if (!bigger()) {
         rt_log("resolution: the game's own (output 1920x1080, scene 1600x900)");
         shadow_init(rt_patch_page());
@@ -338,11 +379,14 @@ void res_init(void) {
            scene_on ? "" : " (the game's own 5/6 of the output)", (unsigned long long)res_heap_extra_kib());
 }
 
+int vk_dlaa_will_run(void);   // vk_dlaa.c
+
 // DLSS upscaling: textures are sampled for the output's resolution, not the scene's (NVIDIA's DLSS guide: a mip bias
-// of log2(render / output)), so their detail survives the scaling. 0 without a DLSS mode.
+// of log2(render / output)), so their detail survives the scaling. 0 without a DLSS mode, and when DLSS does not run
+// (dlaa = 0 at start, no DLSS on this GPU): the game's own scaling of a biased scene only shimmers.
 float res_dlss_lod_bias(void) {
     decide();
-    return R.dlss_k ? (float)log2(R.dlss_k) : 0.0f;
+    return R.dlss_k && R.on && R.sw < R.ow && vk_dlaa_will_run() ? (float)log2((double)R.sw / R.ow) : 0.0f;
 }
 
 // 16:9 within 1% (1366x768 counts): the shape the game's own layouts and camera are made for.

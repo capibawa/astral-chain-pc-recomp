@@ -641,7 +641,8 @@ static void tab_screen(float scale) {
     opt_toggle("AC_DLAA", UI_MENU_DLAA, UI_MENU_DLAA_DESC);
     static const UiTextId dlss[] = {UI_MENU_DLSS_DLAA, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED,
                                     UI_MENU_DLSS_PERFORMANCE};
-    // the upscaling modes lower the scene size through the scene patch set: without it there is only DLAA
+    // the upscaling modes lower the scene size through the scene patch set (recomp/patches-v101.txt): without it there
+    // is only DLAA
     if (rt_patch_set("scene") >= 0) opt_choice("AC_DLSS", UI_MENU_DLSS, dlss, 4, UI_MENU_DLSS_DESC);
     static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
     opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
@@ -1084,8 +1085,9 @@ static float perf_gb(float mb) { return mb < 0 ? -1 : mb / 1024; }
 static void perf_picture(const MenuTarget *t, const ImVec4 &c) {
     unsigned out[2], scene[2];
     res_sizes(out, scene);
-    res_game_size(out);   // the res1080 / res1062 sets: the game renders its scene at its output size
-    scene[0] = out[0], scene[1] = out[1];
+    int smaller = scene[0] < out[0];   // the scene set (a DLSS upscaling mode)
+    res_game_size(out);   // the res1080 / res1062 sets: else the game renders its scene at its output size
+    if (!smaller) scene[0] = out[0], scene[1] = out[1];
     float rs = vk_render_scale();
     unsigned rw = (unsigned)lroundf(scene[0] * rs), rh = (unsigned)lroundf(scene[1] * rs);
     char v[6][64];

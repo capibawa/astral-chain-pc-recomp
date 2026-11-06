@@ -213,19 +213,26 @@ void vk_dlaa_init(void) {
 // RGBA8, and the HUD is drawn over the last of them.
 // So: after the depth prepass, a pass at the scene size with exactly one colour target (R11G11B10F or RGBA16F) and
 // the scene depth arms the frame with that pair; the next pass at most a quarter as wide (the bloom's third level,
-// after the light target's last pass) ends the scene (no jitter after it) and, when the scene is as wide as the
-// output, runs DLAA on the armed target first. The bloom's first two levels have read the scene unresolved, which
-// their blur hides; the composite, post and HUD work on the anti-aliased picture.
-// Upscaling (a scene smaller than the output: AC_DLSS quality/balanced/performance, or the game's own 5/6): measured
-// at a 960x536 scene, 1920x1080 output, the bloom and its composite write back into the light target at the scene size,
-// then one full-screen draw (the FXAA shader below, which also scales) reads it into an output-sized R11G11B10F target
-// with no depth, and the HUD is drawn over that target at the output size. DLSS runs at the begin of that pass: it
-// reads the light target and its result is blitted into the pass's target, whose scaling draw is then skipped. The
-// HUD, drawn afterwards into the same target, is never jittered nor passed through DLSS.
+// after the light target's last pass) ends the scene (no jitter after it) and, unless the scene set made the scene
+// smaller than the output (scaled), runs DLAA on the armed target first. The bloom's first two levels have read the
+// scene unresolved, which their blur hides; the composite, post and HUD work on the anti-aliased picture.
+// Upscaling (a scene smaller than the output: AC_DLSS quality/balanced/performance through the scene patch set,
+// resolution.c): measured (AC_DUMP, 960x540 scene, 1920x1080 output, the night highway save in a cutscene and in play)
+// the whole scene runs at its size: depth prepass, light target, bloom chain, and the composite, a full-screen pass
+// with the scene depth that writes bloom, tonemap and grading (values 0..1) into another R11G11B10F target of the
+// scene's size. The SMAA edge and weight passes follow at that size, then the SMAA blending pass is the only scaling:
+// one full-screen draw, no depth, that reads the composite and the weights into the RGBA8 target of the output's size
+// the HUD is then drawn over. DLSS runs at the begin of that pass, on the composite (as LDR unless HDR output is on),
+// into the size's output image; from there to the frame's end, passes larger than the composite sample that image in its place
+// (vk_dlaa_swap_img, vk_exec_draw.c tex_info; after the TotK Recomp's, same author, MIT), so the blending draw scales
+// DLSS's picture and the HUD is never jittered nor passed through DLSS. SMAA is off meanwhile (vk_dlaa_skip_draw).
 static struct {
     VkExecTarget color, depth;   // the armed pair, valid in the frame it was armed
     int armed, done, gbuf;       // this frame: armed on the light target, DLAA ran, the G-buffer was drawn
-    int ended, up;               // this frame: the scene is drawn (jitter over), DLSS wrote the scaled output
+    int ended;                   // this frame: the scene is drawn (jitter over)
+    VkExecTarget comp;           // upscaling: this frame's composite (the scene after bloom, tonemap and grading)
+    int comp_ok;
+    int scaled;                  // the scene set makes the scene smaller than the output (res_sizes): DLSS upscales
     struct Size {                // a DLSS feature and its work images per scene size (dynamic resolution flips it)
         uint32_t w, h, ow, oh;   // render size, output size
         VkImage out, mv;
@@ -272,9 +279,24 @@ static struct {
     int preset, preset_dirty;    // the DLSS model features are created with (preset_value); a change pending
     unsigned cfg_seen;           // cfg_version when preset was read
     uint64_t last_eval_ns;       // plat_now_ns of the previous evaluation (FrameTimeDeltaInMsec)
-} D = {.mv_ok = -1, .cfg_seen = ~0u};
+} D = {.mv_ok = -1, .cfg_seen = ~0u, .scaled = -1};
+
+const VkTexImage *vk_dlaa_swap_img;
+VkImageView vk_dlaa_swap_view;
 
 static int dl_active(void) { return N.available && !D.failed && D.on; }
+
+int vk_dlaa_will_run(void) { return vk_dlaa_wanted() && N.available && !D.failed; }
+
+// The scene set makes the scene smaller than the output (decided at start, res_init): DLSS scales instead of DLAA.
+static int scaled(void) {
+    if (D.scaled < 0) {
+        unsigned o[2], s[2];
+        res_sizes(o, s);
+        D.scaled = s[0] < o[0];
+    }
+    return D.scaled;
+}
 
 static void dl_fail(const char *what, NgxResult r) {
     rt_log("dlaa: %s failed (%08x): DLAA off for this run", what, (unsigned)r);
@@ -785,9 +807,12 @@ static int perf_quality(uint32_t w, uint32_t ow) {
     return k >= 0.66 ? 2 : k >= 0.57 ? 1 : k >= 0.49 ? 0 : 3;
 }
 
-// dst: the target DLSS's picture goes to, NULL for the light target itself (DLAA in place).
-static void evaluate(VkExec *ex, const VkExecTarget *dst) {
-    const VkExecTarget *t = &D.color, *z = &D.depth;
+// src: what DLSS reads, NULL for the light target; dst: the scaling pass's target, NULL for DLAA in place. In place,
+// DLSS's picture is blitted into the light target; scaled, it stays in the size's output image, which the scaling pass
+// samples in place of src (vk_dlaa_swap_img).
+static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *dst) {
+    const VkExecTarget *t = src ? src : &D.color, *z = &D.depth;
+    int up = dst != NULL;
     if (!dst) dst = t;
     uint32_t w = t->width, h = t->height, ow = dst->width, oh = dst->height;
     VkCommandBuffer cb = ex->cb;
@@ -828,8 +853,11 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
         p_setu(p, "OutWidth", ow);
         p_setu(p, "OutHeight", oh);
         p_seti(p, "PerfQualityValue", perf_quality(w, ow));
-        // IsHDR | MVLowRes | AutoExposure: linear scene light, motion vectors at the render size, no exposure texture
-        p_seti(p, "DLSS.Feature.Create.Flags", (1 << 0) | (1 << 1) | (1 << 6));
+        // MVLowRes: motion vectors at the render size. In place (the light target): IsHDR | AutoExposure, linear scene
+        // light without an exposure texture. Scaled (the composite, tonemapped and graded, 0..1): neither, unless HDR
+        // output keeps highlights above 1 in it (vk_hdr.c).
+        int create = (1 << 1) | (!up || vk_hdr_wanted() ? (1 << 0) | (1 << 6) : 0);
+        p_seti(p, "DLSS.Feature.Create.Flags", create);
         p_seti(p, "DLSS.Enable.Output.Subrects", 0);
         // The model per mode (NVSDK_NGX_DLSS_Hint_Render_Preset: 1 A ... 11 K, 12 L, 13 M), as NVIDIA recommends for
         // DLSS 4.5 (310.x): K (transformer) for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance.
@@ -895,11 +923,12 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
     D.last = e, e->used = D.evals + 1;
     full_barrier(cb);
     vk_mvcheck_output(cb, e->out, ow, oh);   // AC_MV_CHECK (test)
-    // the result into the scene target (DLAA: the bloom, the post passes and the HUD read it and draw over it) or into
-    // the scaling pass's target (the HUD draws over it)
+    // DLAA: the result into the scene target (the bloom, the post passes and the HUD read it and draw over it). Scaled:
+    // the scaling pass reads the output image in place of the composite; only the debug views below are blitted, into
+    // that image.
     VkImageBlit b = {.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
                      .srcOffsets = {{0, 0, 0}, {(int32_t)ow, (int32_t)oh, 1}},
-                     .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, dst->level, dst->base_layer, 1},
+                     .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, up ? 0 : dst->level, up ? 0 : dst->base_layer, 1},
                      .dstOffsets = {{0, 0, 0}, {(int32_t)ow, (int32_t)oh, 1}}};
     // AC_DLAA_MVDEBUG=1 (test): the motion vectors in place of the picture, x in red and y in green, render pixels as
     // scene light (the post passes still run over them)
@@ -912,9 +941,13 @@ static void evaluate(VkExec *ex, const VkExecTarget *dst) {
     }
     int mk = maskdebug && masked;
     if (mvdebug || mk) b.srcOffsets[1] = (VkOffset3D){(int32_t)w, (int32_t)h, 1};
-    VkImage src = mvdebug ? e->mv : mk ? e->x[maskdebug == 2 ? e->obj_cur ^ 1 : 2] : e->out;
-    vkCmdBlitImage(cb, src, VK_IMAGE_LAYOUT_GENERAL, dst->image, VK_IMAGE_LAYOUT_GENERAL, 1, &b, VK_FILTER_NEAREST);
-    full_barrier(cb);
+    VkImage from = mvdebug ? e->mv : mk ? e->x[maskdebug == 2 ? e->obj_cur ^ 1 : 2] : e->out;
+    if (from != e->out || !up) {
+        vkCmdBlitImage(cb, from, VK_IMAGE_LAYOUT_GENERAL, up ? e->out : dst->image, VK_IMAGE_LAYOUT_GENERAL, 1, &b,
+                       VK_FILTER_NEAREST);
+        full_barrier(cb);
+    }
+    if (up) vk_dlaa_swap_img = t->img, vk_dlaa_swap_view = e->out_view;   // the scaling draw reads DLSS's picture
     ex->recorded += 4;
     vk_exec_draw_new_cb();   // NGX bound pipelines and descriptor sets of its own: the next draw binds everything again
     D.jdepth = z->image;
@@ -961,27 +994,35 @@ void vk_dlaa_pass(VkExec *ex) {
     if (!D.ended) {
         if (!ex->pass_w || ex->pass_w * 4 > D.color.width) return;
         D.ended = 1;
-        unsigned o[2], s[2];
-        res_sizes(o, s);
-        if (D.color.width >= o[0]) D.done = 1, evaluate(ex, NULL);   // DLAA in place; else wait for the scaling pass
+        if (!scaled()) D.done = 1, evaluate(ex, NULL, NULL);   // DLAA in place; else wait for the scaling pass
         return;
     }
-    // the game's scaling pass: one colour target wider than the scene, no depth
-    if (ex->pass_ncolor == 1 && c->image && !z->image && scene_color(c->format) && c->width > D.color.width &&
-        c->samples <= 1 && !c->is3d) {
-        D.done = D.up = 1;
-        evaluate(ex, c);
+    // upscaling: the composite, a pass at the light target's size into one HDR-format target with the scene depth
+    // (the latest such pass before the scaling pass)
+    if (ex->pass_ncolor == 1 && c->image && scene_color(c->format) && z->image == D.depth.image &&
+        c->width == D.color.width && c->height == D.color.height && c->samples <= 1 && !c->is3d) {
+        D.comp = *c, D.comp_ok = 1;
+        return;
+    }
+    // the game's scaling pass: one colour target wider than the scene, no depth (the SMAA blend, which writes the RGBA8
+    // picture the HUD is drawn over). A frame without a composite is left unresolved (a missed DLAA point).
+    if (D.comp_ok && ex->pass_ncolor == 1 && c->image && !z->image && c->width > D.color.width && c->samples <= 1 &&
+        !c->is3d) {
+        D.done = 1;
+        evaluate(ex, &D.comp, c);
     }
 }
 
 void vk_dlaa_frame(void) {
+    vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE;
     if (N.available) preset_check();
     int on = N.available && cfg_bool("AC_DLAA");
     if (on != D.on) {
         rt_log("dlaa: %s", on ? "on" : "off");
         D.on = on;
         // either way the next DLAA frame starts a new history from an unjittered frame
-        D.reset = 1, D.cam_prev_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = D.up = 0;
+        D.reset = 1, D.cam_prev_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;
+        D.comp_ok = 0;
         D.hold = 0;
         return;
     }
@@ -990,7 +1031,7 @@ void vk_dlaa_frame(void) {
     if (D.jit_used && !D.done) D.hold = 60, D.holds++;   // jittered but not resolved: that frame shook
     else if (D.hold) D.hold--;
     if (!D.done) D.jit_ok = 0;
-    D.armed = D.done = D.jit_used = D.gbuf = D.ended = D.up = 0;
+    D.armed = D.done = D.jit_used = D.gbuf = D.ended = D.comp_ok = 0;
     D.cam_addr = 0;
     memset(D.cams, 0, sizeof D.cams);
 }
@@ -1003,9 +1044,10 @@ void vk_dlaa_frame(void) {
 // is skipped and the weights pass clears its target instead of drawing, so the blending pass, which still runs, blends
 // nothing. Shaders are known by the FNV-1a hash of their SPIR-V, as vk_dump.c names them; a translator change that
 // gives them other hashes makes the switch do nothing.
+// While DLSS upscales, SMAA is off whatever the setting: its weights are found on the small picture, and the blending
+// pass, which also scales, would apply them to DLSS's full-size one, smearing edges by a scene pixel. With the weights
+// zero that pass only scales (a plain lookup of DLSS's picture at each output pixel).
 static const uint64_t SMAA_EDGES = 0x312b4b91aa889b89ull, SMAA_WEIGHTS = 0xc7dc68a5786be9ceull;
-// TotK's FXAA shader, which also scales the picture in the upscaling modes (vk_dlaa_pass, D.up): kept for that path.
-static const uint64_t FXAA_FS[] = {0xf450003ebeb3dc52ull, 0x0a12f4bc2a9a4fbeull};
 
 static uint64_t spirv_hash(const GfxShader *s) {
     static struct { const GfxShader *s; uint64_t h; } tab[8192];
@@ -1027,28 +1069,32 @@ int vk_dlaa_skip_draw(VkExec *ex, const GfxShader *fs) {
     static uint64_t frame_read = ~0ull;
     static int smaa = 1;
     uint64_t f = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
-    if (f != frame_read) frame_read = f, smaa = cfg_bool("AC_SMAA");   // once a frame: the menu switches it live
-    if (smaa && !D.up) return 0;   // nothing to skip: no shader lookup per draw at the defaults
-    if (!fs) return 0;
+    if (f != frame_read) {   // once a frame: the menu switches it live
+        frame_read = f;
+        smaa = cfg_bool("AC_SMAA") && !(scaled() && dl_active());
+    }
+    if (smaa || !fs) return 0;   // nothing to skip: no shader lookup per draw at the defaults
     uint64_t h = spirv_hash(fs);
-    if (!smaa && h == SMAA_EDGES) return 1;
-    if (!smaa && h == SMAA_WEIGHTS) {   // zero weights: the blending pass passes the picture through
+    if (h == SMAA_EDGES) return 1;
+    if (h == SMAA_WEIGHTS) {   // zero weights: the blending pass passes the picture through
         VkClearAttachment ca = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .colorAttachment = 0};
         VkClearRect r = {.rect = {{0, 0}, {ex->pass_w, ex->pass_h}}, .baseArrayLayer = 0, .layerCount = 1};
         vkCmdClearAttachments(ex->cb, 1, &ca, 1, &r);
         ex->recorded++;
         return 1;
     }
-    if (h != FXAA_FS[0] && h != FXAA_FS[1]) return 0;
-    if (!ex->depth.image) return D.up;   // the scaling pass
-    return !smaa;
+    return 0;
 }
 
 #else
 // NGX is loaded as a Windows DLL; elsewhere DLAA, the DLSS modes' scaling and the SMAA switch do nothing.
 #include "vk_dlaa.h"
 
+const VkTexImage *vk_dlaa_swap_img;
+VkImageView vk_dlaa_swap_view;
+
 int vk_dlaa_wanted(void) { return 0; }
+int vk_dlaa_will_run(void) { return 0; }
 void vk_dlaa_instance_exts(const char **ext, uint32_t *n, uint32_t max) { (void)ext, (void)n, (void)max; }
 void vk_dlaa_device_exts(const VkExtensionProperties *have, uint32_t nhave, const char **ext, uint32_t *n, uint32_t max) {
     (void)have, (void)nhave, (void)ext, (void)n, (void)max;
