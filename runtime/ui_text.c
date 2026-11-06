@@ -124,8 +124,9 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                           "after a restart.",
     [UI_MENU_DLSS] = "DLSS mode",
     [UI_MENU_DLSS_DESC] = "DLAA draws the 3D scene at full resolution. Quality, Balanced and Performance draw it at 67, 58 "
-                          "and 50 % and let DLSS scale it up, for more frames per second; they replace the 3D render "
-                          "scale. Takes effect after a restart.",
+                          "and 50 % of the game resolution (times the 3D render scale) and let DLSS scale it up, "
+                          "for more frames per second; the game's SMAA is off while they run. Takes effect after a "
+                          "restart.",
     [UI_MENU_DLSS_DLAA] = "DLAA (native)", [UI_MENU_DLSS_QUALITY] = "Quality", [UI_MENU_DLSS_BALANCED] = "Balanced",
     [UI_MENU_DLSS_PERFORMANCE] = "Performance",
     [UI_MENU_DLSS_PRESET] = "DLSS model",
@@ -501,8 +502,9 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                           "Действует после перезапуска.",
     [UI_MENU_DLSS] = "Режим DLSS",
     [UI_MENU_DLSS_DESC] = "DLAA рисует 3D-сцену в полном разрешении. «Качество», «Баланс» и «Производительность» рисуют её "
-                          "в 67, 58 и 50 % и масштабируют через DLSS ради большего числа кадров; они заменяют масштаб "
-                          "3D-отрисовки. Действует после перезапуска.",
+                          "в 67, 58 и 50 % игрового разрешения (с учётом масштаба 3D-отрисовки) и масштабируют "
+                          "через DLSS ради большего числа кадров; SMAA игры при этом выключен. Действует после "
+                          "перезапуска.",
     [UI_MENU_DLSS_DLAA] = "DLAA (родное)", [UI_MENU_DLSS_QUALITY] = "Качество", [UI_MENU_DLSS_BALANCED] = "Баланс",
     [UI_MENU_DLSS_PERFORMANCE] = "Производительность",
     [UI_MENU_DLSS_PRESET] = "Модель DLSS",
@@ -1135,8 +1137,8 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
                           "onde ele parte. Vale após reiniciar.",
     [UI_MENU_DLSS] = "Modo do DLSS",
     [UI_MENU_DLSS_DESC] = "DLAA desenha a cena 3D na resolução cheia. Qualidade, Equilibrado e Desempenho a desenham "
-                          "em 67, 58 e 50 % e deixam o DLSS ampliá-la, para mais quadros por segundo; eles substituem "
-                          "a escala 3D. Vale após reiniciar.",
+                          "em 67, 58 e 50 % da resolução do jogo (vezes a escala 3D) e deixam o DLSS ampliá-la, para "
+                          "mais quadros por segundo; o SMAA do jogo fica desligado com eles. Vale após reiniciar.",
     [UI_MENU_DLSS_DLAA] = "DLAA (nativo)",
     [UI_MENU_DLSS_QUALITY] = "Qualidade",
     [UI_MENU_DLSS_BALANCED] = "Equilibrado",
@@ -1644,7 +1646,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_DLAA_DESC] = "用于 3D 场景的 NVIDIA DLSS（NVIDIA RTX 显卡；nvngx_dlss.dll 放在 astralchain.exe 旁）：边缘更平滑，闪烁更少。HUD "
                           "不受影响。下方的模式决定它的工作分辨率。重启后生效。",
     [UI_MENU_DLSS] = "DLSS 模式",
-    [UI_MENU_DLSS_DESC] = "DLAA 以全分辨率绘制 3D 场景。质量、平衡和性能分别以 67%、58% 和 50% 绘制，再由 DLSS 放大，以获得更高帧率；它们会取代 3D 渲染比例。重启后生效。",
+    [UI_MENU_DLSS_DESC] = "DLAA 以全分辨率绘制 3D 场景。质量、平衡和性能分别以游戏分辨率（乘以 3D 渲染比例）的 67%、58% 和 50% 绘制，再由 DLSS 放大，以获得更高帧率；此时游戏的 SMAA 关闭。重启后生效。",
     [UI_MENU_DLSS_DLAA] = "DLAA（原生）",
     [UI_MENU_DLSS_QUALITY] = "质量",
     [UI_MENU_DLSS_BALANCED] = "平衡",
