@@ -293,6 +293,16 @@ static int scaled(void) {
     return s[0] < o[0];
 }
 
+// A scene target of this width is smaller than the output, whose targets ssaa scales as well. Asked of the target and
+// not of scaled(): res_sizes moves when the game starts its rebuild, and the frames already drawn at the old size are
+// still to come. Judged by the setting, a frame at the old small size ran in-place DLAA, which made a feature of its
+// own for that frame, and a frame at the old full size waited for a scaling pass that never came and shook.
+static int target_scaled(uint32_t w) {
+    unsigned o[2], s[2];
+    res_sizes(o, s);
+    return (float)w + 2.0f < (float)o[0] * vk_render_scale();
+}
+
 static void dl_fail(const char *what, NgxResult r) {
     rt_log("dlaa: %s failed (%08x): DLAA off for this run", what, (unsigned)r);
     D.failed = 1;
@@ -993,7 +1003,7 @@ void vk_dlaa_pass(VkExec *ex) {
     if (!D.ended) {
         if (!ex->pass_w || ex->pass_w * 4 > D.color.width) return;
         D.ended = 1;
-        if (!scaled()) D.done = 1, evaluate(ex, NULL, NULL);   // DLAA in place; else wait for the scaling pass
+        if (!target_scaled(D.color.width)) D.done = 1, evaluate(ex, NULL, NULL);   // DLAA in place; else wait for the scaling pass
         return;
     }
     // upscaling: the composite, a pass at the light target's size into one HDR-format target with the scene depth
