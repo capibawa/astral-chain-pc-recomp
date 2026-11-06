@@ -147,7 +147,7 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   (program, index and vertex buffers, counts) and position; objects whose blocks did not change are left to the camera's
   vectors. `dlss_preset` picks the DLSS model (default: NVIDIA's per mode, K for DLAA); `AC_DLAA_TIMES=1` logs its GPU
   and CPU cost and `AC_DLAA_MVDEBUG=1` shows the motion vectors in place of the picture. `fxaa` switches the game's own
-  FXAA pass.
+  SMAA (its edge, weight and blending passes).
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a
   compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). A discrete GPU with 6 GB of video memory or more keeps
