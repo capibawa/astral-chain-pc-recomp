@@ -191,8 +191,8 @@
 # every mode, the sharpest) or j (slightly less ghosting behind moving characters, a little more flicker). Any single
 # letter a to m picks that model. Changes while the game runs take effect at once.
 # dlss_preset = default
-# The game's own FXAA after the post effects; with DLAA on it is not needed. Changes while the game runs take effect at
-# once.
+# The game's own anti-aliasing (SMAA, the key keeps its old name) after the post effects; with DLAA on it is not
+# needed, and 0 saves its three passes. Changes while the game runs take effect at once.
 # fxaa = 1
 
 # HDR output: hdr = 1 sends the picture as HDR10 (needs HDR on in Windows, "Use HDR", or a Wayland compositor with

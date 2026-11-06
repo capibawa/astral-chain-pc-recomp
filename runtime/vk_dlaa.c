@@ -838,17 +838,16 @@ void vk_dlaa_frame(void) {
     D.cam_addr = 0;
 }
 
-// ---------------------------------------------------------------- the game's FXAA (AC_FXAA, live)
-// Astral Chain's FXAA is two full-screen passes after the bloom, just before the HUD: one copies the scene target into a
-// scratch target, the other draws the anti-aliased result back over the scene (found by diffing frame dumps with the
-// game's own switch, ModelSceneExtensionParam EnableFXAA, on and off). With fxaa = 0 the draws of that second pass's
-// fragment shader are skipped, so the scene reaches the HUD as it was. Shaders are known by the FNV-1a hash of their
-// SPIR-V, as vk_dump.c names them; a translator change gives new hashes and the switch then does nothing.
-// With a scene smaller than the output (the game's own 5/6 render scale, or a DLSS mode) the same shader draws the
-// scaled picture into the output-sized target, in a pass without the depth attachment the in-place FXAA has: there it
-// is always drawn, whatever fxaa says (skipping it would leave the 3D picture out), unless DLSS already wrote that
-// target this frame.
-// The stock translator's hash, and the one with tools/xlate patch 0010 (PCSS, PR #89) applied.
+// ---------------------------------------------------------------- the game's anti-aliasing (AC_FXAA, live)
+// Astral Chain anti-aliases with SMAA 1x, three full-screen passes after the composite (measured: AC_DUMP frame 4200
+// outside the police HQ; the key is still called fxaa): edge detection into an RGBA8 target, blend weights from those
+// edges and SMAA's area (160x560) and search (64x16) textures, then neighbourhood blending of the HDR picture by the
+// weights, which also writes the 8-bit picture the HUD is drawn over. With fxaa = 0 the edge pass is skipped and the
+// weights pass clears its target instead of drawing, so the blending pass, which still runs, blends nothing. Shaders
+// are known by the FNV-1a hash of their SPIR-V, as vk_dump.c names them; a translator change that gives them other
+// hashes makes the switch do nothing.
+static const uint64_t SMAA_EDGES = 0x312b4b91aa889b89ull, SMAA_WEIGHTS = 0xc7dc68a5786be9ceull;
+// TotK's FXAA shader, which also scales the picture in the upscaling modes (vk_dlaa_pass, D.up): kept for that path.
 static const uint64_t FXAA_FS[] = {0xf450003ebeb3dc52ull, 0x0a12f4bc2a9a4fbeull};
 
 static uint64_t spirv_hash(const GfxShader *s) {
@@ -875,6 +874,14 @@ int vk_dlaa_skip_draw(VkExec *ex, const GfxShader *fs) {
     if (fxaa && !D.up) return 0;   // nothing to skip: no shader lookup per draw at the defaults
     if (!fs) return 0;
     uint64_t h = spirv_hash(fs);
+    if (!fxaa && h == SMAA_EDGES) return 1;
+    if (!fxaa && h == SMAA_WEIGHTS) {   // zero weights: the blending pass passes the picture through
+        VkClearAttachment ca = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .colorAttachment = 0};
+        VkClearRect r = {.rect = {{0, 0}, {ex->pass_w, ex->pass_h}}, .baseArrayLayer = 0, .layerCount = 1};
+        vkCmdClearAttachments(ex->cb, 1, &ca, 1, &r);
+        ex->recorded++;
+        return 1;
+    }
     if (h != FXAA_FS[0] && h != FXAA_FS[1]) return 0;
     if (!ex->depth.image) return D.up;   // the scaling pass
     return !fxaa;
