@@ -115,7 +115,7 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   HUD's white. Without an HDR10 surface format (Windows with "Use HDR" off, a compositor without colour management)
   the swapchain stays SDR. `AC_SHOTS` reads the window texture, so its pictures clip highlights in HDR.
 - DLAA (`vk_dlaa.c`, `dlaa`, off by default). NVIDIA DLSS at the scene's own size, through the driver's NGX core loaded
-  at run time (no SDK code compiled in). It runs on the R11G11B10F light target at the bloom chain's third level, after
+  at run time (no SDK code compiled in; `_nvngx.dll` on Windows, `libnvidia-ngx.so.1` on Linux). It runs on the R11G11B10F light target at the bloom chain's third level, after
   the light target's last pass, so the composite, post effects and the HUD read the anti-aliased picture. The scene's
   draws get a sub-pixel Halton viewport jitter (16 phases for DLAA, 8 x the squared upscaling ratio otherwise); motion
   vectors are the camera's, reprojected from the scene depth through one matrix, last frame's view-projection of the
