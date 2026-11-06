@@ -352,8 +352,11 @@ static void free_size(struct Size *e) {
 
 // The entry for a scene and output size: its output (RGBA16F at the output size, written by DLSS, then blitted into
 // the target) and motion vectors (RG16F at the scene size, render pixels), both kept in GENERAL like every image of the
-// back end. Astral Chain's dynamic resolution switches between a few sizes; each keeps its feature, the least recently used
-// goes for a new one.
+// back end. The TotK Recomp keeps each size's feature because its dynamic resolution flips between them. Here the scene
+// set gives every dynamic-resolution level one size, so only a mode change brings another, already a hitch of a target
+// rebuild: making a new entry frees those unused for SIZE_IDLE evaluations, or five modes at a 4K output would hold
+// five features' worth of video memory for the rest of the run. The least recently used goes if none is free.
+#define SIZE_IDLE 300u
 static struct Size *size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh) {
     struct Size *e = NULL, *lru = &D.sizes[0];
     for (int i = 0; i < 5; i++) {
@@ -365,6 +368,11 @@ static struct Size *size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_
         if (D.last == lru) D.last = NULL;
         free_size(e = lru);
     }
+    for (int i = 0; i < 5; i++)
+        if (D.sizes[i].out && D.sizes[i].used + SIZE_IDLE < D.evals) {
+            if (D.last == &D.sizes[i]) D.last = NULL;
+            free_size(&D.sizes[i]);
+        }
     VkImageUsageFlags u = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                           VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     VkImageUsageFlags ux = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
