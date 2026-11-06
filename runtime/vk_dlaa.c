@@ -1014,6 +1014,9 @@ void vk_dlaa_pass(VkExec *ex) {
 
 // AC_DLSS, read at each present (the menu switches it live): the scene size of the mode (resolution.c) and the
 // texture bias that goes with it while DLSS runs. After the TotK Recomp's vk_dlaa.c dlss_mode (same author, MIT).
+// A mode only means a smaller scene while DLSS can scale it. With dlaa switched off, NGX not up (no RTX GPU beside the
+// DLL) or DLSS failed in this run, the scene goes back to the game's size, or the game's plain scaling would show it at
+// 33..67 % of the output: the setting stays as it is, and the mode comes back with dlaa.
 // AC_DLSS_CYCLE=<frames> (test): every that many presents the mode moves on to the next one, as a click in the menu
 // would, so one scripted run goes through all of them.
 static void dlss_mode(void) {
@@ -1031,7 +1034,7 @@ static void dlss_mode(void) {
         while (i < 5 && strcmp(cfg_value("AC_DLSS"), modes[i])) i++;
         cfg_set("AC_DLSS", modes[(i + 1) % 5]);
     }
-    const char *m = cfg_value("AC_DLSS");
+    const char *m = N.available && !D.failed && cfg_bool("AC_DLAA") ? cfg_value("AC_DLSS") : "dlaa";
     if (strcmp(m, mode)) {
         snprintf(mode, sizeof mode, "%s", m);
         res_dlss_mode(m);
@@ -1042,7 +1045,8 @@ static void dlss_mode(void) {
 
 void vk_dlaa_frame(void) {
     vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE;
-    if (N.available) dlss_mode(), preset_check();
+    dlss_mode();
+    if (N.available) preset_check();
     int on = N.available && cfg_bool("AC_DLAA");
     if (on != D.on) {
         rt_log("dlaa: %s", on ? "on" : "off");
