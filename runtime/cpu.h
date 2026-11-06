@@ -69,6 +69,7 @@ void rt_fps_cam_fcsel(Cpu *c);      // camera: entry3 fcsel with the smoothed s9
 // ---- scene size patch helpers (runtime/resolution.c, set scene of recomp/patches-v101.txt)
 void rt_res_scene_w1(Cpu *c);       // w1 = the scene width on the patch page
 void rt_res_scene_h2(Cpu *c);       // w2 = the scene height on the patch page
+void rt_res_rebuild_w8(Cpu *c);     // w8 = the display-changed flag, or 1 when a new scene size is pending
 
 
 #if defined(__aarch64__)

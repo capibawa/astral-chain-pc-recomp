@@ -640,10 +640,10 @@ static void tab_screen(float scale) {
     opt_slider("AC_CONTACT_SHADOWS", UI_MENU_CONTACT_SHADOWS, 0, 100, UI_MENU_CONTACT_SHADOWS_DESC, 10, "%.0f %%");
     opt_toggle("AC_DLAA", UI_MENU_DLAA, UI_MENU_DLAA_DESC);
     static const UiTextId dlss[] = {UI_MENU_DLSS_DLAA, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED,
-                                    UI_MENU_DLSS_PERFORMANCE};
-    // the upscaling modes lower the scene size through the scene patch set (recomp/patches-v101.txt): without it there
+                                    UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
+    // the upscaling modes set the scene size through the scene patch set (recomp/patches-v101.txt): without it there
     // is only DLAA
-    if (rt_patch_set("scene") >= 0) opt_choice("AC_DLSS", UI_MENU_DLSS, dlss, 4, UI_MENU_DLSS_DESC);
+    if (rt_patch_set("scene") >= 0) opt_choice("AC_DLSS", UI_MENU_DLSS, dlss, 5, UI_MENU_DLSS_DESC);
     static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
     opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
     static const UiTextId chars[] = {UI_MENU_DLSS_CHARS_OFF, UI_MENU_DLSS_CHARS_LIGHT, UI_MENU_DLSS_CHARS_MEDIUM,
