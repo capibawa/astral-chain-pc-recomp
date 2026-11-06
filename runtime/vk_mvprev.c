@@ -194,6 +194,8 @@ void vk_mvprev_swap(void) {
     if (M.knob <= 0) return;
     Frame *t = M.f[1];
     M.f[1] = M.f[0], M.f[0] = t;
+    // for the GPU's reads next frame; a no-op on coherent memory, but cached memory (this arena's) need not be coherent
+    vmaFlushAllocation(vk_ctx()->vma, M.mem, (VkDeviceSize)M.f[1]->slot * SLOT_BYTES, M.f[1]->used);
     M.slot = (M.f[1]->slot + 1) % SLOTS;
     frame_reset(M.f[0], M.slot);
     if (++M.frames % SUMMARY) return;
