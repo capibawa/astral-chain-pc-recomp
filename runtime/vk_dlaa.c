@@ -984,14 +984,18 @@ static int scene_color(VkFormat f) {
     return f == VK_FORMAT_B10G11R11_UFLOAT_PACK32 || f == VK_FORMAT_R16G16B16A16_SFLOAT;
 }
 
+// A D32F(S8) depth at least as wide as the narrowest scene a mode asks for: Ultra Performance, a third of the output
+// (640 at 1920x1080; 544 at the game's own 1600x900, which a fixed 640 never recognised).
 static int scene_depth(const VkExecTarget *z) {
-    return z->image && z->width >= 640 && (z->format == VK_FORMAT_D32_SFLOAT_S8_UINT || z->format == VK_FORMAT_D32_SFLOAT);
+    unsigned o[2], s[2];
+    res_sizes(o, s);
+    return z->image && z->width >= o[0] / 3 && (z->format == VK_FORMAT_D32_SFLOAT_S8_UINT || z->format == VK_FORMAT_D32_SFLOAT);
 }
 
 void vk_dlaa_pass(VkExec *ex) {
     const VkExecTarget *c = &ex->color[0], *z = &ex->depth;
     if (!dl_active() || D.done) return;
-    // The depth prepass: no colour target, a D32F(S8) depth at least 640 wide. Only light-target passes after it arm the
+    // The depth prepass: no colour target, a D32F(S8) depth of a scene's width. Only light-target passes after it arm the
     // frame, so nothing drawn ahead of the scene can. The shadow map passes look the same; they fall between light-target
     // passes, so they leave the armed pair as it is.
     if (ex->pass_ncolor == 0 && scene_depth(z)) {
