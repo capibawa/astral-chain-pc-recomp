@@ -315,7 +315,11 @@ static int image2d(uint32_t w, uint32_t h, VkFormat f, VkImageUsageFlags usage, 
 
 static void free_size(struct Size *e) {
     const VkCtx *c = vk_ctx();
-    vkDeviceWaitIdle(c->device);   // an evicted size or a new model: the images may still be in flight
+    // an evicted size or a new model: the images may still be in flight. vkDeviceWaitIdle needs every queue externally
+    // synchronised, and the present and the upload threads submit too.
+    vk_queue_lock();
+    vkDeviceWaitIdle(c->device);
+    vk_queue_unlock();
     if (e->out_view) vkDestroyImageView(c->device, e->out_view, NULL);
     if (e->mv_view) vkDestroyImageView(c->device, e->mv_view, NULL);
     if (e->out) vmaDestroyImage(c->vma, e->out, e->out_mem);
