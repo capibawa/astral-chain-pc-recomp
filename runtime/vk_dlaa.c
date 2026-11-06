@@ -303,6 +303,14 @@ static int target_scaled(uint32_t w) {
     return (float)w + 2.0f < (float)o[0] * vk_render_scale();
 }
 
+// A target of the output's size, with what ssaa makes of it (its rounding is vk_texture.c's: within two pixels).
+static int output_sized(const VkExecTarget *c) {
+    unsigned o[2], s[2];
+    res_sizes(o, s);
+    float k = vk_render_scale();
+    return fabsf((float)c->width - (float)o[0] * k) <= 2.0f && fabsf((float)c->height - (float)o[1] * k) <= 2.0f;
+}
+
 static void dl_fail(const char *what, NgxResult r) {
     rt_log("dlaa: %s failed (%08x): DLAA off for this run", what, (unsigned)r);
     D.failed = 1;
@@ -1013,10 +1021,12 @@ void vk_dlaa_pass(VkExec *ex) {
         D.comp = *c, D.comp_ok = 1;
         return;
     }
-    // the game's scaling pass: one colour target wider than the scene, no depth (the SMAA blend, which writes the RGBA8
-    // picture the HUD is drawn over). A frame without a composite is left unresolved (a missed DLAA point).
-    if (D.comp_ok && ex->pass_ncolor == 1 && c->image && !z->image && c->width > D.color.width && c->samples <= 1 &&
-        !c->is3d) {
+    // the game's scaling pass: one colour target of the output's size, wider than the scene, no depth (the SMAA blend,
+    // which writes the RGBA8 picture the HUD is drawn over). As the TotK Recomp asks for the output's size: a pass of
+    // another size (2560x1440 at ssaa = 2160p, on the title screen) made a DLSS feature of its own after each mode change.
+    // A frame without a composite is left unresolved (a missed DLAA point).
+    if (D.comp_ok && ex->pass_ncolor == 1 && c->image && !z->image && c->width > D.color.width && output_sized(c) &&
+        c->samples <= 1 && !c->is3d) {
         D.done = 1;
         evaluate(ex, &D.comp, c);
     }
