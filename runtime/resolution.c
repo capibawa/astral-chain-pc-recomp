@@ -448,6 +448,9 @@ static void scene_page(unsigned w, unsigned h) {
     memcpy((uint8_t *)rt_patch_page() + 16, sc, sizeof sc);
 }
 
+static uint64_t size_asked;            // the latest size res_dlss_mode asked for (the present's thread, as pack())
+static volatile uint64_t size_pending; // that size until the game thread takes it, 0: none
+
 static void scene_only_init(int set) {
     unsigned g[2];
     res_game_size(g);
@@ -459,30 +462,36 @@ static void scene_only_init(int set) {
     R.ow = g[0], R.oh = g[1];
     scene_for(R.dlss_k, g, &R.sw, &R.sh);
     scene_page(R.sw, R.sh);   // before the switch: a site that sees it on reads it
+    size_asked = pack(R.sw, R.sh);
     rt_patch_switch(set, 1);
     R.on = 1;
     rt_log("resolution: scene %ux%u, output %ux%u (DLSS %s); the DLSS mode can change while the game runs", R.sw, R.sh,
            R.ow, R.oh, cfg_value("AC_DLSS"));
 }
 
-// An AC_DLSS change while the game runs (vk_dlaa.c, at a present): the new scene size goes to the patch page, and the
-// framework's per-frame window update (0x9db520, run by the main loop after each frame's draw) is told the display
-// changed (rt_res_rebuild_w8). The game then runs its own display-change sequence there: it remakes its screen-sized
-// resources and calls the callback its renderer setup registered for a docked / handheld change (0x40fa50, registered
-// at 0x40e138), which releases the levels' scene targets and the other screen-sized ones and makes them again through
-// 0x40e180 and 0x40e2e0, whose ladder reads the page through the scene set. (Calling 0x40fa50 alone, from the present,
-// left that sequence half done: the game crashed a frame after the second change.) 1 when the size changes.
-static unsigned pend_w, pend_h;
-static volatile int size_pending;   // the page holds a size the game has not built yet
-
+// An AC_DLSS change while the game runs (vk_dlaa.c, at a present): the new scene size waits in size_pending for the
+// framework's per-frame window update (0x9db520, run by the main loop after each frame's draw), which writes it to the
+// patch page and is told the display changed (rt_res_rebuild_w8). The game then runs its own display-change sequence
+// there: it remakes its screen-sized resources and calls the callback its renderer setup registered for a docked /
+// handheld change (0x40fa50, registered at 0x40e138), which releases the levels' scene targets and the other
+// screen-sized ones and makes them again through 0x40e180 and 0x40e2e0, whose ladder reads the page through the scene
+// set. (Calling 0x40fa50 alone, from the present, left that sequence half done: the game crashed a frame after the
+// second change.) The page is written on the game's thread, right before that sequence, because the ladder reads width
+// and height in two steps: a page written from the present during a rebuild could make targets of one mode's width and
+// another's height. 1 when another size was asked for.
+//
 // ldur w8, [x29, #-0x34] at 0x9db5b0: the display-changed flag, set as well when a scene size is pending.
 void rt_res_rebuild_w8(Cpu *c) {
     uint32_t changed = *(volatile const uint32_t *)(uintptr_t)(c->x[29] - 0x34);
-    if (__atomic_load_n(&size_pending, __ATOMIC_ACQUIRE)) {
-        __atomic_store_n(&size_pending, 0, __ATOMIC_RELAXED);
-        R.sw = pend_w, R.sh = pend_h;   // vk_dlaa.c sees the new size from the frames drawn with it
-        changed = 1;
-        rt_log("resolution: the game rebuilds its scene targets at %ux%u", R.sw, R.sh);
+    uint64_t want = __atomic_load_n(&size_pending, __ATOMIC_ACQUIRE);
+    if (want && (want = __atomic_exchange_n(&size_pending, 0, __ATOMIC_ACQ_REL))) {
+        unsigned w = (unsigned)want, h = (unsigned)(want >> 32);
+        if (w != R.sw || h != R.sh) {   // the mode went away and back before the game got here: nothing to rebuild
+            scene_page(w, h);
+            R.sw = w, R.sh = h;   // vk_dlaa.c sees the new size from the frames drawn with it
+            changed = 1;
+            rt_log("resolution: the game rebuilds its scene targets at %ux%u", w, h);
+        }
     }
     c->x[8] = changed;
 }
@@ -498,13 +507,16 @@ int res_dlss_mode(const char *m) {
     R.dlss_k = k;
     unsigned g[2] = {R.ow, R.oh}, w, h;
     scene_for(k, g, &w, &h);
-    if (w == R.sw && h == R.sh) return 0;
-    scene_page(w, h);
-    pend_w = w, pend_h = h;
-    __atomic_store_n(&size_pending, 1, __ATOMIC_RELEASE);
+    // Against the last size asked for, not the one built: going back to the built size while another still waits has
+    // to replace that one, or the game would build the mode the player just left.
+    uint64_t want = pack(w, h);
+    if (want == size_asked) return 0;
+    size_asked = want;
+    __atomic_store_n(&size_pending, want, __ATOMIC_RELEASE);
     rt_log("resolution: DLSS %s: scene %ux%u from the next frame", m, w, h);
     return 1;
 }
+
 static unsigned page_size(int i) {
     float v;
     memcpy(&v, (const uint8_t *)rt_patch_page() + 16 + 4 * i, sizeof v);
