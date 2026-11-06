@@ -152,14 +152,18 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   on their own and where they were last frame. `AC_MV_CHECK=<frames>` measures how well the vectors explain the picture
   (warp and end-point errors of the camera's and the final vectors). `smaa` switches the game's own SMAA (its edge,
   weight and blending passes; an old `fxaa` line is read as `smaa`).
-- DLSS upscaling (`dlss = quality | balanced | performance`). The game keeps three dynamic-resolution levels, each with
-  its own scene targets, and draws its output and HUD at the render size `res1080` sets. The `scene` patch set
-  (`recomp/patches-v101.txt`) gives every level the size `resolution.c` writes on the patch page: 1280x720, 1120x630 or
-  960x540 of 1920x1080 (16:9 in steps of 32x18; 1114x626 lost the device). The whole scene chain, bloom and composite
+- DLSS upscaling (`dlss = quality | balanced | performance | ultra_performance`, live, as in the TotK Recomp). The game
+  keeps three dynamic-resolution levels, each with its own scene targets, and draws its output and HUD at the render
+  size `res1080` sets. With DLSS able to run (`dlaa = 1`, `nvngx_dlss.dll` there) the `scene` patch set
+  (`recomp/patches-v101.txt`) gives every level the size `resolution.c` writes on the patch page: 1920x1080 for `dlaa`,
+  1280x720, 1120x630, 960x540 or 640x360 for the others (16:9 in steps of 32x18; 1114x626 lost the device). A mode
+  change in the menu writes the new size and makes the framework's per-frame window update (0x9db520) report a display
+  change, so the game runs its own docked / handheld sequence, which rebuilds the scene targets at the next frame
+  (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). The whole scene chain, bloom and composite
   included, then runs at that size and the game's SMAA blending pass scales it to the output. DLSS runs on the
   composite at the begin of that pass, and the pass samples DLSS's output in the composite's place (`vk_dlaa_swap_img`);
   SMAA is off meanwhile and material textures take a mip bias of log2(scene / output). `ssaa` multiplies both sizes
-  (2160p performance: 1920x1080 to 3840x2160). Without a DLSS mode the set is off and the game renders as before.
+  (2160p performance: 1920x1080 to 3840x2160). With `dlaa = 0` the set is off and the game renders as before.
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a
   compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). A discrete GPU with 6 GB of video memory or more keeps

@@ -232,7 +232,6 @@ static struct {
     int ended;                   // this frame: the scene is drawn (jitter over)
     VkExecTarget comp;           // upscaling: this frame's composite (the scene after bloom, tonemap and grading)
     int comp_ok;
-    int scaled;                  // the scene set makes the scene smaller than the output (res_sizes): DLSS upscales
     struct Size {                // a DLSS feature and its work images per scene size (dynamic resolution flips it)
         uint32_t w, h, ow, oh;   // render size, output size
         VkImage out, mv;
@@ -279,23 +278,19 @@ static struct {
     int preset, preset_dirty;    // the DLSS model features are created with (preset_value); a change pending
     unsigned cfg_seen;           // cfg_version when preset was read
     uint64_t last_eval_ns;       // plat_now_ns of the previous evaluation (FrameTimeDeltaInMsec)
-} D = {.mv_ok = -1, .cfg_seen = ~0u, .scaled = -1};
+} D = {.mv_ok = -1, .cfg_seen = ~0u};
 
 const VkTexImage *vk_dlaa_swap_img;
 VkImageView vk_dlaa_swap_view;
 
 static int dl_active(void) { return N.available && !D.failed && D.on; }
 
-int vk_dlaa_will_run(void) { return vk_dlaa_wanted() && N.available && !D.failed; }
-
-// The scene set makes the scene smaller than the output (decided at start, res_init): DLSS scales instead of DLAA.
+// The scene set makes the scene smaller than the output (res_sizes; a mode change takes effect once the game rebuilt
+// its scene targets, resolution.c res_present): DLSS scales instead of DLAA.
 static int scaled(void) {
-    if (D.scaled < 0) {
-        unsigned o[2], s[2];
-        res_sizes(o, s);
-        D.scaled = s[0] < o[0];
-    }
-    return D.scaled;
+    unsigned o[2], s[2];
+    res_sizes(o, s);
+    return s[0] < o[0];
 }
 
 static void dl_fail(const char *what, NgxResult r) {
@@ -1013,9 +1008,37 @@ void vk_dlaa_pass(VkExec *ex) {
     }
 }
 
+// AC_DLSS, read at each present (the menu switches it live): the scene size of the mode (resolution.c) and the
+// texture bias that goes with it while DLSS runs. After the TotK Recomp's vk_dlaa.c dlss_mode (same author, MIT).
+// AC_DLSS_CYCLE=<frames> (test): every that many presents the mode moves on to the next one, as a click in the menu
+// would, so one scripted run goes through all of them.
+static void dlss_mode(void) {
+    static char mode[32];
+    static float bias = 0;
+    static int cycle = -1;
+    static uint64_t presents;
+    if (cycle < 0) {
+        const char *v = cfg_get("AC_DLSS_CYCLE");
+        cycle = v && *v ? atoi(v) : 0;
+    }
+    if (cycle > 0 && ++presents % (uint64_t)cycle == 0) {
+        static const char *const modes[] = {"dlaa", "quality", "balanced", "performance", "ultra_performance"};
+        int i = 0;
+        while (i < 5 && strcmp(cfg_value("AC_DLSS"), modes[i])) i++;
+        cfg_set("AC_DLSS", modes[(i + 1) % 5]);
+    }
+    const char *m = cfg_value("AC_DLSS");
+    if (strcmp(m, mode)) {
+        snprintf(mode, sizeof mode, "%s", m);
+        res_dlss_mode(m);
+    }
+    float b = dl_active() ? res_dlss_lod_bias() : 0.0f;
+    if (b != bias) bias = b, vk_sampler_dlss_bias(b);
+}
+
 void vk_dlaa_frame(void) {
     vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE;
-    if (N.available) preset_check();
+    if (N.available) dlss_mode(), preset_check();
     int on = N.available && cfg_bool("AC_DLAA");
     if (on != D.on) {
         rt_log("dlaa: %s", on ? "on" : "off");
@@ -1094,7 +1117,6 @@ const VkTexImage *vk_dlaa_swap_img;
 VkImageView vk_dlaa_swap_view;
 
 int vk_dlaa_wanted(void) { return 0; }
-int vk_dlaa_will_run(void) { return 0; }
 void vk_dlaa_instance_exts(const char **ext, uint32_t *n, uint32_t max) { (void)ext, (void)n, (void)max; }
 void vk_dlaa_device_exts(const VkExtensionProperties *have, uint32_t nhave, const char **ext, uint32_t *n, uint32_t max) {
     (void)have, (void)nhave, (void)ext, (void)n, (void)max;

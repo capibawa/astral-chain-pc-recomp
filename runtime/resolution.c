@@ -43,6 +43,7 @@
 #include "gfx.h"
 #include "host.h"
 #include "layout.h"
+#include "platform/platform.h"
 #include "simd.h"
 
 #define BASE_W 1600
@@ -60,8 +61,38 @@ static struct {
     int heapdef_ok;            // romfs.c serves the grown HeapDef
     int on;                    // res_init switched the patch sets on
     unsigned shadow;           // fixed sun shadow map size (AC_SHADOW_RES), 0: the game's own
-    double dlss_k;             // AC_DLSS quality/balanced/performance: the scene's share of the output, else 0
+    double dlss_k;             // AC_DLSS quality/balanced/performance/ultra_performance: the scene's share, else 0
+    int live;                  // the mode can change while the game runs (1.0.1 with DLSS able to run: res_dlss_mode)
 } R;
+
+// The scene size is decided before the device exists, so NGX cannot be asked yet. NGX loads DLSS from nvngx_dlss.dll
+// next to astralchain.exe (vk_dlaa.c vk_dlaa_init): without that file DLSS never runs, and a DLSS mode would leave the
+// game's plain scaling at 33..67 % of the output. After the TotK Recomp's resolution.c (same author, MIT).
+static int dlss_dll(void) {
+    char exe[1024], path[1024 + 32];
+    if (!plat_exe_path(exe, sizeof exe)) return 1;
+    char *last = plat_last_sep(exe);
+    if (!last) return 1;
+    snprintf(path, sizeof path, "%.*s/nvngx_dlss.dll", (int)(last - exe), exe);
+    return plat_file_exists(path);
+}
+
+// The scene's share of the output for an AC_DLSS mode; 0 for dlaa (the scene keeps the game's size), while DLSS/DLAA
+// is off (the mode the menu still holds would shrink the scene for the game's plain scaling) and where DLSS cannot run.
+static double dlss_share(const char *m) {
+    static const struct { const char *name; double k; } dlss[] = {
+        {"quality", 2.0 / 3.0}, {"balanced", 0.58}, {"performance", 0.5}, {"ultra_performance", 1.0 / 3.0}};
+    static int dll = -1;
+    if (!cfg_bool("AC_DLAA")) return 0;
+    for (int i = 0; i < (int)(sizeof dlss / sizeof dlss[0]); i++)
+        if (!strcmp(m, dlss[i].name)) {
+            if (dll < 0 && !(dll = dlss_dll()))
+                rt_log("resolution: DLSS %s needs nvngx_dlss.dll next to astralchain.exe, which is missing: the scene "
+                       "keeps the game's size", m);
+            return dll ? dlss[i].k : 0;
+        }
+    return 0;
+}
 
 static void decide(void) {
     if (R.decided) return;
@@ -80,10 +111,7 @@ static void decide(void) {
     const char *s = cfg_value("AC_RENDER_SCALE");
     double k = 5.0 / 6.0;
     const char *m = cfg_value("AC_DLSS");   // a DLSS mode other than dlaa sets the scene size
-    static const struct { const char *name; double k; } dlss[] = {
-        {"quality", 2.0 / 3.0}, {"balanced", 0.58}, {"performance", 0.5}};
-    for (int i = 0; i < 3; i++)
-        if (!strcmp(m, dlss[i].name)) R.dlss_k = dlss[i].k;
+    R.dlss_k = dlss_share(m);
     // Without the scene patch set (1.0.1 has none) the scene keeps the game's size: a DLSS mode would only bias the
     // textures toward an output that is never upscaled, sharpening them into shimmer. DLSS then runs as DLAA.
     if (R.dlss_k && rt_patch_set("scene") < 0) {
@@ -395,31 +423,88 @@ void res_game_size(unsigned out[2]) {
 }
 
 // ---- 1.0.1: the scene set alone (recomp/patches-v101.txt). The output stays the game resolution (res, res1062 or
-// the game's own 1600x900) and only the scene shrinks, to the DLSS mode's share of it: the game's dynamic-resolution
+// the game's own 1600x900) and only the scene changes, to the DLSS mode's share of it: the game's dynamic-resolution
 // levels all take the size on page +16 ({w, h} as floats, read by rt_res_scene_w1 / rt_res_scene_h2 below), and the
-// game's own scaling pass draws the scene to the output, where vk_dlaa.c runs DLSS in its place. The scene is smaller
-// than the targets the game already makes at 1920x1080, so the texture heap needs nothing more.
+// game's own scaling pass draws the scene to the output, where vk_dlaa.c runs DLSS in its place. The scene is never
+// larger than the targets the game already makes, so the texture heap needs nothing more.
+// With DLSS able to run (dlaa = 1, nvngx_dlss.dll there) the set is always on, so the mode can change while the game
+// runs (res_dlss_mode): dlaa gives every level the game resolution. That also takes level 2's 1280-wide scene out of
+// the res1080 set (its width is not one of res1080's sites), which DLAA otherwise ran on in some frames.
+
+// The scene for a share k of the game resolution g: 16:9 in steps of 32x18 (640x360, 960x540, 1120x630, 1280x720), the
+// shape of the game's own levels. The plain share of 1920x1080 in Balanced, 1114x626, lost the device at the first 3D
+// frame (RTX 5070 Ti, at 1080p and at ssaa = 2160p alike); 1120x630 plays. k = 0: the game resolution itself.
+static void scene_for(double k, const unsigned g[2], unsigned *w, unsigned *h) {
+    if (!k) {
+        *w = g[0], *h = g[1];
+        return;
+    }
+    unsigned n = (unsigned)lround(g[0] * k / 32);
+    *w = 32 * n, *h = 18 * n;
+}
+
+static void scene_page(unsigned w, unsigned h) {
+    float sc[2] = {(float)w, (float)h};
+    memcpy((uint8_t *)rt_patch_page() + 16, sc, sizeof sc);
+}
+
 static void scene_only_init(int set) {
     unsigned g[2];
     res_game_size(g);
-    if (!R.dlss_k) {
+    R.live = cfg_bool("AC_DLAA") && dlss_dll();
+    if (!R.live) {
         rt_patch_switch(set, 0);
         return;
     }
-    // 16:9 in steps of 32x18 (960x540, 1120x630, 1280x720), the shape of the game's own levels: the plain share of
-    // 1920x1080 in Balanced, 1114x626, lost the device at the first 3D frame (RTX 5070 Ti, at 1080p and at ssaa =
-    // 2160p alike), 1120x630 plays
     R.ow = g[0], R.oh = g[1];
-    unsigned n = (unsigned)lround(g[0] * R.dlss_k / 32);
-    R.sw = 32 * n, R.sh = 18 * n;
-    float sc[2] = {(float)R.sw, (float)R.sh};
-    memcpy((uint8_t *)rt_patch_page() + 16, sc, sizeof sc);   // before the switch: a site that sees it on reads it
+    scene_for(R.dlss_k, g, &R.sw, &R.sh);
+    scene_page(R.sw, R.sh);   // before the switch: a site that sees it on reads it
     rt_patch_switch(set, 1);
     R.on = 1;
-    rt_log("resolution: scene %ux%u, output %ux%u (DLSS %s; %s)", R.sw, R.sh, R.ow, R.oh, cfg_value("AC_DLSS"),
-           cfg_bool("AC_DLAA") ? "DLSS scales the scene to the output" : "dlaa = 0: the game's own scaling");
+    rt_log("resolution: scene %ux%u, output %ux%u (DLSS %s); the DLSS mode can change while the game runs", R.sw, R.sh,
+           R.ow, R.oh, cfg_value("AC_DLSS"));
 }
 
+// An AC_DLSS change while the game runs (vk_dlaa.c, at a present): the new scene size goes to the patch page, and the
+// framework's per-frame window update (0x9db520, run by the main loop after each frame's draw) is told the display
+// changed (rt_res_rebuild_w8). The game then runs its own display-change sequence there: it remakes its screen-sized
+// resources and calls the callback its renderer setup registered for a docked / handheld change (0x40fa50, registered
+// at 0x40e138), which releases the levels' scene targets and the other screen-sized ones and makes them again through
+// 0x40e180 and 0x40e2e0, whose ladder reads the page through the scene set. (Calling 0x40fa50 alone, from the present,
+// left that sequence half done: the game crashed a frame after the second change.) 1 when the size changes.
+static unsigned pend_w, pend_h;
+static volatile int size_pending;   // the page holds a size the game has not built yet
+
+// ldur w8, [x29, #-0x34] at 0x9db5b0: the display-changed flag, set as well when a scene size is pending.
+void rt_res_rebuild_w8(Cpu *c) {
+    uint32_t changed = *(volatile const uint32_t *)(uintptr_t)(c->x[29] - 0x34);
+    if (__atomic_load_n(&size_pending, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&size_pending, 0, __ATOMIC_RELAXED);
+        R.sw = pend_w, R.sh = pend_h;   // vk_dlaa.c sees the new size from the frames drawn with it
+        changed = 1;
+        rt_log("resolution: the game rebuilds its scene targets at %ux%u", R.sw, R.sh);
+    }
+    c->x[8] = changed;
+}
+
+int res_dlss_mode(const char *m) {
+    decide();
+    double k = dlss_share(m);
+    if (k == R.dlss_k || !R.on) return 0;
+    if (!R.live) {
+        rt_log("resolution: DLSS %s takes effect at the next start", m);
+        return 0;
+    }
+    R.dlss_k = k;
+    unsigned g[2] = {R.ow, R.oh}, w, h;
+    scene_for(k, g, &w, &h);
+    if (w == R.sw && h == R.sh) return 0;
+    scene_page(w, h);
+    pend_w = w, pend_h = h;
+    __atomic_store_n(&size_pending, 1, __ATOMIC_RELEASE);
+    rt_log("resolution: DLSS %s: scene %ux%u from the next frame", m, w, h);
+    return 1;
+}
 static unsigned page_size(int i) {
     float v;
     memcpy(&v, (const uint8_t *)rt_patch_page() + 16 + 4 * i, sizeof v);
@@ -489,14 +574,12 @@ void res_init(void) {
            scene_on ? "" : " (the game's own 5/6 of the output)", (unsigned long long)res_heap_extra_kib());
 }
 
-int vk_dlaa_will_run(void);   // vk_dlaa.c
-
 // DLSS upscaling: textures are sampled for the output's resolution, not the scene's (NVIDIA's DLSS guide: a mip bias
-// of log2(render / output)), so their detail survives the scaling. 0 without a DLSS mode, and when DLSS does not run
-// (dlaa = 0 at start, no DLSS on this GPU): the game's own scaling of a biased scene only shimmers.
+// of log2(render / output)), so their detail survives the scaling. 0 when the scene is the output's size; vk_dlaa.c
+// applies it only while DLSS runs (the game's own scaling of a biased scene only shimmers).
 float res_dlss_lod_bias(void) {
     decide();
-    return R.dlss_k && R.on && R.sw < R.ow && vk_dlaa_will_run() ? (float)log2((double)R.sw / R.ow) : 0.0f;
+    return R.on && R.sw < R.ow ? (float)log2((double)R.sw / R.ow) : 0.0f;
 }
 
 // 16:9 within 1% (1366x768 counts): the shape the game's own layouts and camera are made for.
