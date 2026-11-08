@@ -401,6 +401,19 @@ static const char *res_auto(void) {
     return o;
 }
 
+// For the menu, each frame: the size auto would take at the next start, read again only when a setting changed (the
+// DLSS model check behind res_temporal_at_start looks at the file system). Quiet, unlike res_auto.
+void res_auto_next(unsigned out[2]) {
+    static unsigned seen = ~0u, next[2];
+    if (cfg_version() != seen) {
+        seen = cfg_version();
+        int screen = res_temporal_at_start() ? gfx_display_height() : 0;
+        next[0] = screen >= 2160 ? 3840 : screen >= 1440 ? 2560 : 1920;
+        next[1] = screen >= 2160 ? 2160 : screen >= 1440 ? 1440 : 1080;
+    }
+    out[0] = next[0], out[1] = next[1];
+}
+
 static char asked[16];   // output_res as res_size read it
 
 const char *res_output_asked(void) { return asked; }

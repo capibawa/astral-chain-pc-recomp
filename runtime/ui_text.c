@@ -61,6 +61,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                 "scale straight to it, and the interface is drawn at full resolution. Takes effect "
                                 "after a restart.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automatic",
+    [UI_MENU_OUTPUT_RES_NEXT] = ", %s after restart",
     [UI_MENU_ASPECT] = "Picture shape",
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
                             "screen): keep the picture's shape with black bars, or stretch it over the window.",
@@ -471,6 +472,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                 "3840 × 2160), так что DLAA работает в разрешении экрана, DLSS или FSR 3 масштабирует "
                                 "сразу до него, а интерфейс рисуется в полном разрешении. Действует после перезапуска.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Автоматически",
+    [UI_MENU_OUTPUT_RES_NEXT] = ", после перезапуска %s",
     [UI_MENU_ASPECT] = "Форма картинки",
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
                             "форму картинки с чёрными полосами или растянуть её на всё окно.",
@@ -887,6 +889,7 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
                                 "FSR 3 escalar direto para ela e a interface ser desenhada em resolução total. Vale "
                                 "após reiniciar.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automático",
+    [UI_MENU_OUTPUT_RES_NEXT] = ", %s após reiniciar",
     [UI_MENU_ASPECT] = "Formato da imagem",
     [UI_MENU_ASPECT_DESC] = "Quando o formato da janela difere do da resolução do jogo (uma imagem 16:9 numa tela "
                             "21:9): manter o formato da imagem com barras pretas ou esticá-la sobre a janela.",
@@ -1316,6 +1319,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
                                 "3840 × 2160），让 DLAA 以屏幕分辨率运行、DLSS 或 FSR 3 直接放大到屏幕，界面以完整分辨率"
                                 "绘制。重启后生效。",
     [UI_MENU_OUTPUT_RES_AUTO] = "自动",
+    [UI_MENU_OUTPUT_RES_NEXT] = "，重启后 %s",
     [UI_MENU_ASPECT] = "画面宽高比",
     [UI_MENU_ASPECT_DESC] = "当窗口宽高比和游戏分辨率不同时（21:9 屏幕上显示 16:9 画面）："
                             "用黑边保持画面比例，或拉伸铺满窗口。",

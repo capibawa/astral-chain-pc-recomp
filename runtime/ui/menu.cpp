@@ -59,6 +59,7 @@ void res_game_size(unsigned out[2]);
 const char *res_output_asked(void);
 int res_scene_live(void);
 int rt_patch_set(const char *name);
+void res_auto_next(unsigned out[2]);
 double frame_step_limit_hz(void);
 extern const int rt_game_version;
 extern const char rt_port_version[];
@@ -493,10 +494,11 @@ static void row_window_size(void) {
 
 // AC_OUTPUT_RES (resolution.c res_pick): the size the game renders itself, as in the TotK Recomp's menu: its 16:9 sizes
 // up to 3840x2160, the most the process heap leaves room for, 1280x720 for weak GPUs (resolution.c res_size takes 16:9
-// sizes of 32n x 18n only; the Steam Deck profile's default is 1280x720), and auto, the screen's size while temporal
-// upscaling runs from the start (resolution.c res_auto). Another size from the ini shows as it is. Read at start; the
-// row says "after restart" while the stored value differs from the one this run started with (for auto: from the
-// value itself, as auto's size is only known at start).
+// sizes of 32n x 18n only; the Steam Deck profile's default is 1280x720), and auto, the screen's size while DLAA or
+// temporal upscaling runs from the start (resolution.c res_auto). Another size from the ini shows as it is. Read at
+// start; the row says "after restart" while the stored value differs from the size this run renders. Automatic decided
+// at start from the anti-aliasing and upscaling then: the row shows the size it took this run, and, when the settings
+// now would make it take another at the next start (DLAA switched to SMAA while playing), that one too.
 static void row_output_res(void) {
     static const char *const vals[] = {"auto",      "1280x720",  "1600x900", "1920x1080",
                                        "2560x1440", "3200x1800", "3840x2160"};
@@ -514,9 +516,27 @@ static void row_output_res(void) {
     res_game_size(g);
     char now[16];
     snprintf(now, sizeof now, "%ux%u", g[0], g[1]);
-    const char *v = cfg_value("AC_OUTPUT_RES");
-    int later = !strcmp(v, "auto") ? strcmp(res_output_asked(), "auto") : strcmp(v, now);
-    const char *note = later ? menu_text(UI_MENU_AFTER_RESTART) : nullptr;
+    const char *v = cfg_value("AC_OUTPUT_RES"), *note = nullptr;
+    static char buf[96];
+    if (!strcmp(v, "auto")) {
+        if (!strcmp(res_output_asked(), "auto") && !cfg_from_env("AC_OUTPUT_RES")) {
+            unsigned next[2];
+            res_auto_next(next);
+            char in_use[32];
+            snprintf(in_use, sizeof in_use, "%u × %u", g[0], g[1]);
+            int n = snprintf(buf, sizeof buf, menu_text(UI_MENU_PRESENT_IN_USE), in_use);
+            if ((next[0] != g[0] || next[1] != g[1]) && n > 0 && n < (int)sizeof buf) {
+                char after[32];
+                snprintf(after, sizeof after, "%u × %u", next[0], next[1]);
+                snprintf(buf + n, sizeof buf - n, menu_text(UI_MENU_OUTPUT_RES_NEXT), after);
+            }
+            note = buf;
+        } else if (strcmp(res_output_asked(), "auto")) {
+            note = menu_text(UI_MENU_AFTER_RESTART);
+        }
+    } else if (strcmp(v, now)) {
+        note = menu_text(UI_MENU_AFTER_RESTART);
+    }
     opt_choice_list("AC_OUTPUT_RES", UI_MENU_OUTPUT_RES, vals, names, N, UI_MENU_OUTPUT_RES_DESC, -1, note);
 }
 
@@ -623,6 +643,7 @@ static void rows_antialiasing(void) {
     int dlss = vk_dlaa_dlss_state(), run = vk_dlaa_running();
     const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
     const char *restart = menu_text(UI_MENU_AFTER_RESTART);
+    bool later = false;   // the upscaling choice (and so its quality) waits for a restart
     {
         static const char *const vals[] = {"off", "smaa", "dlaa"};
         const char *names[] = {ui_text(UI_MENU_AA_OFF), ui_text(UI_MENU_AA_SMAA), ui_text(UI_MENU_AA_DLAA)};
@@ -644,15 +665,16 @@ static void rows_antialiasing(void) {
         }
         if (cur < 0) cur = 0;   // a stored dlss where it cannot run: Off is what runs
         if (dlaa) cur = 2;      // DLAA is DLSS at full resolution: shown as DLSS, the stored choice kept for later
-        bool later = !dlaa && strcmp(up, "off") &&
-                     ((rt_patch_set("scene") >= 0 && !res_scene_live()) || (dlss == 2 && !strcmp(up, "dlss")));
+        later = !dlaa && strcmp(up, "off") &&
+                ((rt_patch_set("scene") >= 0 && !res_scene_live()) || (dlss == 2 && !strcmp(up, "dlss")));
         opt_choice_list("AC_UPSCALING", UI_MENU_UPSCALING, vals, names, n, UI_MENU_UPSCALING_DESC, cur,
                         later ? restart : nullptr);
     }
     if (rt_patch_set("scene") >= 0 && strcmp(up, "off") && !dlaa) {
         static const UiTextId q[] = {UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED, UI_MENU_DLSS_PERFORMANCE,
                                      UI_MENU_DLSS_ULTRA};
-        opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC);
+        opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC,
+                   later ? restart : nullptr);
     }
     // RCAS before the HUD in every mode, or on the present for frames without the scene (vk_dlaa.c presharp)
     opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
