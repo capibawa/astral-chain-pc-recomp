@@ -34,7 +34,6 @@ static int pad_east_a;               // ... and labels its east face button A (N
 static int pad_layout = -1;          // PAD_LAYOUT_* in effect for the open gamepad, -1 to pick again; live (cfg_version)
 static unsigned pad_layout_seen;
 static volatile int32_t pad_layout_shown = -1;   // pad_layout for the menu (any thread), -1 without a gamepad
-static volatile int32_t pad_kind_shown = PAD_KIND_NONE;   // the open gamepad's kind for the menu, NONE without one
 static SDL_JoystickID sensor_pad;    // the gamepad whose sensors the motion thread set up, 0 none
 static int sensor_ok;                // ... and it has both sensors, enabled
 static int motion_thread;            // 0 not started, 1 running, -1 off (AC_MOTION=0, no SDL)
@@ -333,31 +332,12 @@ static void stick(SDL_GamepadAxis ax, SDL_GamepadAxis ay, float dead, int32_t ou
     input_pad_stick(SDL_GetGamepadAxis(pad, ax), -(int32_t)SDL_GetGamepadAxis(pad, ay), dead, out);
 }
 
-// The prompts' kind of an open gamepad: the SDL type first, the face labels for a STANDARD pad that carries
-// another maker's labels; anything else (Switch pads included) keeps the Nintendo prompts.
-static int kind_of(SDL_Gamepad *gamepad) {
-    switch (SDL_GetGamepadType(gamepad)) {
-    case SDL_GAMEPAD_TYPE_XBOX360:
-    case SDL_GAMEPAD_TYPE_XBOXONE: return PAD_KIND_XBOX;
-    case SDL_GAMEPAD_TYPE_PS3:
-    case SDL_GAMEPAD_TYPE_PS4:
-    case SDL_GAMEPAD_TYPE_PS5: return PAD_KIND_PLAYSTATION;
-    default: break;
-    }
-    if (SDL_GetGamepadButtonLabel(gamepad, SDL_GAMEPAD_BUTTON_SOUTH) == SDL_GAMEPAD_BUTTON_LABEL_A)
-        return PAD_KIND_XBOX;
-    if (SDL_GetGamepadButtonLabel(gamepad, SDL_GAMEPAD_BUTTON_SOUTH) == SDL_GAMEPAD_BUTTON_LABEL_CROSS)
-        return PAD_KIND_PLAYSTATION;
-    return PAD_KIND_NONE;
-}
-
 // Open the first gamepad when none is open or the open one went away; logs once per change.
 static void scan_pads(void) {
     if (pad && SDL_GamepadConnected(pad)) return;
     if (pad) {
         SDL_CloseGamepad(pad); pad = NULL; sensor_pad = 0; sensor_ok = 0;
         plat_xchg32(&pad_layout_shown, -1);
-        plat_xchg32(&pad_kind_shown, PAD_KIND_NONE);
         for (int i = 0; i < 4; i++) plat_xchg32(&pad_labels[i], PAD_LABEL_NONE);
         rt_log("input: gamepad disconnected");
     }
@@ -368,10 +348,6 @@ static void scan_pads(void) {
     if (!pad) return;
     pad_rumble = SDL_GetBooleanProperty(SDL_GetGamepadProperties(pad), SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, false);
     pad_east_a = SDL_GetGamepadButtonLabel(pad, SDL_GAMEPAD_BUTTON_EAST) == SDL_GAMEPAD_BUTTON_LABEL_A;
-    // The prompts' kind: the SDL type first, the face labels for a STANDARD pad that carries another maker's
-    // labels; anything else (Switch pads included) keeps the Nintendo prompts.
-    int kind = kind_of(pad);
-    plat_xchg32(&pad_kind_shown, kind);
     for (int i = 0; i < 4; i++) {
         SDL_GamepadButtonLabel lb = SDL_GetGamepadButtonLabel(pad, pad_sdl[PAD_SOUTH + i]);
         plat_xchg32(&pad_labels[i], lb == SDL_GAMEPAD_BUTTON_LABEL_A          ? PAD_LABEL_A
@@ -643,34 +619,6 @@ uint16_t rumble_motor(float a, float curve, float strength) {
 
 int input_pad_layout(void) {
     return (int)plat_cas32(&pad_layout_shown, 0, 0);
-}
-
-int input_pad_kind(void) {
-    return (int)plat_cas32(&pad_kind_shown, 0, 0);
-}
-
-int input_detect_pad_kind(void) {
-    const char *e = cfg_get("AC_INPUT");
-    if (e && !strcmp(e, "none")) return PAD_KIND_NONE;
-    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
-        rt_log("input: auto prompts: SDL gamepad init failed (%s)", SDL_GetError());
-        return PAD_KIND_NONE;
-    }
-    SDL_UpdateGamepads();
-    int n = 0, kind = PAD_KIND_NONE;
-    SDL_JoystickID *ids = SDL_GetGamepads(&n);
-    SDL_Gamepad *found = NULL;
-    for (int i = 0; ids && i < n && !found; i++) found = SDL_OpenGamepad(ids[i]);
-    SDL_free(ids);
-    if (found) {
-        kind = kind_of(found);
-        SDL_CloseGamepad(found);
-    }
-    return kind;
-}
-
-int input_prompts_auto(void) {
-    return input_prompts_auto_for_kind(input_detect_pad_kind());
 }
 
 int input_pad_label(int pad_id) {

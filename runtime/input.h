@@ -19,15 +19,6 @@ void input_menu(int open);
 int input_menu_gate(int *held, int menu_open, uint64_t *buttons, int32_t sticks[4]);
 int input_overlay_gate(int *held, uint64_t *buttons);   // L3+R3: 1 in the poll both go down
 int input_pad_read(uint64_t *buttons, int32_t *lx, int32_t *ly);
-// The open gamepad's kind (input_map.h PAD_KIND_*) for the button prompts' auto choice. Any thread.
-int input_pad_kind(void);
-// First-run gamepad detection for the prompts' auto choice (romfs.c overlay_init, before input starts): inits the
-// SDL gamepad subsystem, opens the first gamepad and returns its kind, closing it again. Input's own start later
-// opens its own handle. PAD_KIND_NONE without a gamepad or with AC_INPUT=none. Any thread; idempotent.
-int input_detect_pad_kind(void);
-// AUTO resolved through a first-run detection: the detected kind's mod, Nintendo for any other controller or none.
-// Callers with a live gamepad use input_prompts_auto_for_kind(input_pad_kind()) instead.
-int input_prompts_auto(void);
 // The gamepad layout in effect (PAD_LAYOUT_*, input_map.h; AC_PAD_LAYOUT, live); -1 without a gamepad. Any thread.
 int input_pad_layout(void);
 // How far the open gamepad's left (pct[0]) and right (pct[1]) sticks are from the centre now, in percent of full

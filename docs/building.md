@@ -107,9 +107,9 @@ From the repository root, in PowerShell. Every step that depends on the game ver
    For Xbox and PlayStation button prompts (the Controls tab's *Button prompts* row), build the button mods' overlays
    from the emulator mods with `tools\make_prompts_folders.py` (defaults read `controller-ui\`):
    they write the two `romfs-patches-*` folders, which `build_game.py` copies next to `astralchain.exe` like
-   `romfs-patches`. The default `prompts = auto` loads the mod of the controller in use at the first run (no
-   restart needed); the Controls tab shows and changes it. The mods draw the Switch positions, so the Xbox layout
-   mismatches their glyphs (the menu warns).
+   `romfs-patches`. As in TotK Recomp, `prompts` defaults to `nintendo` (the game's own) and the mods load only when
+   chosen on the Controls tab or in `astralchain.ini`, after a restart. The mods draw the Switch positions, so they
+   suit the Nintendo layout; the Xbox layout mismatches their glyphs (the menu warns).
 
 6. Prepare the shaders (once per build folder and translator). It reads the variants players met from
    `generated\shader-answers.bin` (recorded in play; `tools\prepare_shaders.py --recordings` turns a recording into it)

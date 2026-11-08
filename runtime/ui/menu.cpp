@@ -719,14 +719,11 @@ static void row_walk_key(void) {
 // wrong buttons. Shown in the row's description (right panel) instead of a note, so the row keeps its shape.
 static bool prompts_layout_warn(void) {
     const char *layout = cfg_value("AC_PAD_LAYOUT"), *used = romfs_prompts();
-    int pick = input_prompts_pick(cfg_get("AC_PROMPTS"), layout);
-    if (pick == PROMPTS_AUTO) pick = input_prompts_auto_for_kind(input_pad_kind());
-    const char *want = input_prompts_folder(pick, layout);
+    const char *want = input_prompts_folder(input_prompts_pick(cfg_get("AC_PROMPTS"), layout), layout);
     return want && used && !strcmp(want, used) && input_pad_layout() == PAD_LAYOUT_XBOX;
 }
 
-// The note under the prompts. The settings name a prompts folder (input_prompts_folder: AUTO resolved through the
-// gamepad in effect), but the game reads its UI archive once at start (romfs.c overlay_init). While the folder in
+// The note under the prompts. The settings name a prompts folder (input_prompts_folder), but the game reads its UI archive once at start (romfs.c overlay_init). While the folder in
 // use differs: "files missing" when the setup did not write the one asked for, why it was left out at start
 // (damaged, a game resolution that is not 16:9, a RomFS mod with the same files, AC_ROMFS_PATCHES), else "prompts
 // change after restart", and only then *restart is set: a restart would bring the prompts asked for. NULL when
@@ -734,9 +731,7 @@ static bool prompts_layout_warn(void) {
 static const char *prompts_note(bool *restart) {
     *restart = false;
     const char *layout = cfg_value("AC_PAD_LAYOUT"), *used = romfs_prompts();
-    int pick = input_prompts_pick(cfg_get("AC_PROMPTS"), layout);
-    if (pick == PROMPTS_AUTO) pick = input_prompts_auto_for_kind(input_pad_kind());
-    const char *want = input_prompts_folder(pick, layout);
+    const char *want = input_prompts_folder(input_prompts_pick(cfg_get("AC_PROMPTS"), layout), layout);
     if (want == used || (want && used && !strcmp(want, used))) return nullptr;
     if (want && !romfs_prompts_ready(want)) return menu_text(UI_MENU_PROMPTS_MISSING);
     switch (romfs_prompts_off(want)) {
@@ -792,11 +787,10 @@ static void tab_controls(float scale) {
     opt_begin("##controls", scale);
     static const UiTextId layout[] = {UI_MENU_PAD_LAYOUT_AUTO, UI_MENU_PAD_LAYOUT_NINTENDO, UI_MENU_PAD_LAYOUT_XBOX};
     opt_choice("AC_PAD_LAYOUT", UI_MENU_PAD_LAYOUT, layout, 3, UI_MENU_PAD_LAYOUT_DESC, pad_layout_note());
-    static const UiTextId prompts[] = {UI_MENU_PROMPTS_AUTO, UI_MENU_PROMPTS_NINTENDO, UI_MENU_PROMPTS_XBOX,
-                                        UI_MENU_PROMPTS_PLAYSTATION};
+    static const UiTextId prompts[] = {UI_MENU_PROMPTS_NINTENDO, UI_MENU_PROMPTS_XBOX, UI_MENU_PROMPTS_PLAYSTATION};
     bool restart;
     const char *note = prompts_note(&restart);
-    opt_choice("AC_PROMPTS", UI_MENU_PROMPTS, prompts, 4,
+    opt_choice("AC_PROMPTS", UI_MENU_PROMPTS, prompts, 3,
                prompts_layout_warn() ? UI_MENU_PROMPTS_DESC_LAYOUT : UI_MENU_PROMPTS_DESC, note);
     bool ask = restart && opt_button("##restart", UI_MENU_RESTART, UI_MENU_RESTART_DESC);
     opt_toggle("AC_MOTION", UI_MENU_MOTION, UI_MENU_MOTION_DESC);

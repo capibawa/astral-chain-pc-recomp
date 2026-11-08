@@ -291,25 +291,18 @@ int input_pad_layout_pick(const char *setting, int east_labelled_a) {
 int input_prompts_pick(const char *prompts, const char *pad_layout) {
     if (!prompts || !*prompts) {
         if (pad_layout && !strcasecmp(pad_layout, "xbox_prompts")) return PROMPTS_XBOX;   // 0.1.9's name
-        return PROMPTS_AUTO;   // unset: the settings default, resolved by the caller
+        return PROMPTS_NINTENDO;   // unset: the settings default
     }
-    if (!strcasecmp(prompts, "auto")) return PROMPTS_AUTO;
     if (!strcasecmp(prompts, "xbox")) return PROMPTS_XBOX;
     if (!strcasecmp(prompts, "playstation")) return PROMPTS_PLAYSTATION;
-    return PROMPTS_NINTENDO;
-}
-
-int input_prompts_auto_for_kind(int kind) {
-    if (kind == PAD_KIND_XBOX) return PROMPTS_XBOX;
-    if (kind == PAD_KIND_PLAYSTATION) return PROMPTS_PLAYSTATION;
-    return PROMPTS_NINTENDO;
+    return PROMPTS_NINTENDO;   // "nintendo", and 1.4's "auto" (which the menu wrote as the default)
 }
 
 const char *input_prompts_folder(int prompts, const char *pad_layout) {
     (void)pad_layout;   // the button mods draw the Switch positions whatever the layout in effect
     if (prompts == PROMPTS_XBOX) return "romfs-patches-xbox";
     if (prompts == PROMPTS_PLAYSTATION) return "romfs-patches-playstation";
-    return NULL;   // Nintendo needs no folder; AUTO is resolved by the caller
+    return NULL;   // Nintendo needs no folder
 }
 
 uint64_t input_map_pad_buttons(const uint8_t down[PAD_COUNT], int layout) {

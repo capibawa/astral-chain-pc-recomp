@@ -34,7 +34,6 @@
 #include "cfg.h"
 #include "fs.h"
 #include "host.h"
-#include "input.h"
 #include "input_map.h"
 #include "layout.h"
 #include "mods.h"
@@ -839,14 +838,7 @@ static void overlay_init(void) {
             plat_file_exists(path);
     }
     const char *layout = cfg_value("AC_PAD_LAYOUT");
-    int pick = input_prompts_pick(cfg_get("AC_PROMPTS"), layout);
-    const char *auto_name = NULL;   // the auto-detected prompts, for the logs below
-    if (pick == PROMPTS_AUTO) {
-        pick = input_prompts_auto();
-        auto_name = pick == PROMPTS_XBOX ? "Xbox" : pick == PROMPTS_PLAYSTATION ? "PlayStation" : NULL;
-        if (auto_name) rt_log("RomFS overlay: auto prompts: %s controller, %s button prompts", auto_name, auto_name);
-    }
-    prompts_wanted = input_prompts_folder(pick, layout);
+    prompts_wanted = input_prompts_folder(input_prompts_pick(cfg_get("AC_PROMPTS"), layout), layout);
     prompts_off = !prompts_wanted                         ? ROMFS_PROMPTS_OK
                   : wide                                  ? ROMFS_PROMPTS_SHAPE
                   : patches                               ? ROMFS_PROMPTS_PATCHES
@@ -865,7 +857,7 @@ static void overlay_init(void) {
             rt_log("RomFS overlay: %s failed its check (run the setup again); romfs-patches loads instead", path);
         }
     } else if (prompts_wanted) {
-        rt_log("RomFS overlay: prompts = %s, but %s; Switch prompts stay", auto_name ? auto_name : cfg_value("AC_PROMPTS"),
+        rt_log("RomFS overlay: prompts = %s, but %s; Switch prompts stay", cfg_value("AC_PROMPTS"),
                prompts_off == ROMFS_PROMPTS_SHAPE     ? "the game resolution takes its own UI layout"
                : prompts_off == ROMFS_PROMPTS_PATCHES ? "AC_ROMFS_PATCHES is set"
                                                       : "their folder has no manifest.tsv (run the setup again)");

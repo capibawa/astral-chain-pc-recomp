@@ -91,7 +91,7 @@ typedef enum {
     UI_MENU_RUMBLE_TRIGGERS, UI_MENU_RUMBLE_TRIGGERS_DESC,
     UI_MENU_PAD_LAYOUT, UI_MENU_PAD_LAYOUT_DESC, UI_MENU_PAD_LAYOUT_AUTO, UI_MENU_PAD_LAYOUT_NINTENDO,
     UI_MENU_PAD_LAYOUT_XBOX, UI_MENU_PAD_LAYOUT_IN_USE,
-    UI_MENU_PROMPTS, UI_MENU_PROMPTS_DESC, UI_MENU_PROMPTS_AUTO, UI_MENU_PROMPTS_NINTENDO, UI_MENU_PROMPTS_XBOX,
+    UI_MENU_PROMPTS, UI_MENU_PROMPTS_DESC, UI_MENU_PROMPTS_NINTENDO, UI_MENU_PROMPTS_XBOX,
     UI_MENU_PROMPTS_PLAYSTATION,
     // the notes under the prompts: their files are missing or damaged, they change after restart, why they are off,
     // or why the Xbox layout mismatches mods drawn at the Switch positions

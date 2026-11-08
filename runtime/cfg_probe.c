@@ -298,21 +298,15 @@ int probe_cfg(void) {
               input_pad_layout_pick("Xbox_Prompts", 1) == PAD_LAYOUT_NINTENDO,
           "pad layout: 0.1.9's xbox_prompts keeps the Nintendo positions (only the prompts change, romfs.c overlay_init)");
     // Button prompts (input_map.c)
-    CHECK(input_prompts_pick(NULL, "auto") == PROMPTS_AUTO && input_prompts_pick("", "xbox") == PROMPTS_AUTO &&
-              input_prompts_pick("auto", "nintendo") == PROMPTS_AUTO &&
+    CHECK(input_prompts_pick(NULL, "auto") == PROMPTS_NINTENDO && input_prompts_pick("", "xbox") == PROMPTS_NINTENDO &&
+              input_prompts_pick("auto", "nintendo") == PROMPTS_NINTENDO &&
               input_prompts_pick("Xbox", "nintendo") == PROMPTS_XBOX &&
               input_prompts_pick("PlayStation", "nintendo") == PROMPTS_PLAYSTATION &&
               input_prompts_pick("nintendo", "xbox") == PROMPTS_NINTENDO,
-          "prompts: auto while unset, the game's own only when set to Nintendo");
-    CHECK(input_prompts_pick(NULL, "xbox_prompts") == PROMPTS_XBOX && input_prompts_pick("nintendo", "xbox_prompts") == PROMPTS_NINTENDO,
-          "prompts: 0.1.9's pad_layout = xbox_prompts means Xbox while prompts is unset");
-    CHECK(input_prompts_auto_for_kind(PAD_KIND_XBOX) == PROMPTS_XBOX &&
-              input_prompts_auto_for_kind(PAD_KIND_PLAYSTATION) == PROMPTS_PLAYSTATION &&
-              input_prompts_auto_for_kind(PAD_KIND_NONE) == PROMPTS_NINTENDO,
-          "prompts: auto follows the gamepad kind, Nintendo without one");
-    CHECK(!input_prompts_folder(PROMPTS_NINTENDO, "nintendo") && !input_prompts_folder(PROMPTS_NINTENDO, "xbox") &&
-              !input_prompts_folder(PROMPTS_AUTO, NULL),
-          "prompts: the game's own and unresolved auto need no folder");
+          "prompts: the game's own unless Xbox or PlayStation is chosen (1.4's auto included)");
+    m = cfg_meta("PROMPTS");
+    CHECK(m && EQ(m->def, "nintendo") && EQ(m->values, "nintendo|xbox|playstation") && !m->live,
+          "meta: prompts default to the game's own and need a restart");
     CHECK(input_prompts_pick(NULL, "xbox_prompts") == PROMPTS_XBOX && input_prompts_pick("nintendo", "xbox_prompts") == PROMPTS_NINTENDO,
           "prompts: 0.1.9's pad_layout = xbox_prompts means Xbox while prompts is unset");
     CHECK(!input_prompts_folder(PROMPTS_NINTENDO, "nintendo") && !input_prompts_folder(PROMPTS_NINTENDO, "xbox"),
