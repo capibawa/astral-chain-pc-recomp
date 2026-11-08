@@ -105,15 +105,20 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   HUD stretched over it. The `aspect` setting (`fit`, the default; `stretch`) decides what the present does
   when the window's shape differs from the output's: `fit` letterboxes, where a 16:9 game in a wider window used to be
   stretched.
-- HDR (`hdr = 1`, `vk_hdr.c`). The game tonemaps its scene into an r11g11b10f target, upscales it and draws the HUD
-  into another float target, and a last draw copies that into the 8-bit sRGB window texture it presents. With HDR on,
-  the tonemap's fragment shader (recognised by its constants and resource names, not a hash) runs as
-  `shaders/hdr_tonemap.frag`, which keeps highlights up to the display's peak; the present reads the float target the
-  window texture was copied from (any other last draw into it, such as a menu or a movie, leaves the window texture,
-  shown at the HUD's white); a compute pass turns the picture into PQ code values in Rec. 2020 for an HDR10
-  swapchain, which FSR 1 or the blit then scale; the in-game menu is drawn into an RGBA8 image and blended on at the
-  HUD's white. Without an HDR10 surface format (Windows with "Use HDR" off, a compositor without colour management)
-  the swapchain stays SDR. `AC_SHOTS` reads the window texture, so its pictures clip highlights in HDR.
+- HDR (`hdr = 1`, `vk_hdr.c`). The game tonemaps its scene (Uchimura's curve, or Hable's, then a 16³ colour LUT) into
+  an R11G11B10F target at the output's size, sRGB-encoded; its SMAA reads that target and writes the 8-bit window
+  texture it presents, and the HUD and menus draw into the window texture afterwards. With HDR on, the tonemap's
+  fragment shader (recognised by its constants and resource names, not a hash) runs as `shaders/hdr_tonemap.frag`,
+  which grades in SDR as the game does and, on an HDR10 swapchain, writes the picture with its highlights (up to the
+  peak over the game's white) into the float target; `hdr_hue` (0 to 100, default 80, from TotK Recomp) sets how far
+  highlights keep the SDR picture's whitened hue rather than the extended curve's saturated one. The present gets that scene beside the window texture; a compute
+  pass takes each window pixel that still equals the clamped scene (or its SMAA blend with one neighbour) as the scene,
+  at the game's white and with its highlights from the float target, and every other pixel (the HUD, menus, the
+  game's dimming behind a pop-up) at the HUD's white, then turns the result into PQ code values in Rec. 2020, which
+  FSR 1 or the blit then scale. A frame without the scene (movies, loading screens) is shown at the HUD's white. The
+  in-game menu is drawn into an RGBA8 image and blended on at the HUD's white. Without an HDR10 surface format
+  (Windows with "Use HDR" off, a compositor without colour management) the swapchain stays SDR and the tonemap writes
+  the game's own result. `AC_SHOTS` reads the window texture, so its pictures clip highlights in HDR.
 - DLAA (`vk_dlaa.c`, `dlaa`, off by default). NVIDIA DLSS at the scene's own size, through the driver's NGX core loaded
   at run time (no SDK code compiled in). It runs on the R11G11B10F light target right before the bloom chain's first
   pass, so post effects and the HUD read the anti-aliased picture. The scene's draws get a sub-pixel Halton viewport

@@ -118,7 +118,8 @@ VkImage vk_color_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat
 void vk_color_release(void);   // before the device goes away
 // HDR output (vk_hdr.c). vk_hdr_wanted: AC_HDR, read once. vk_hdr_surface_format: the HDR10 surface format when wanted
 // and offered (1). vk_hdr_set_active: gfx_present.c says whether the swapchain is HDR10 (vk_hdr_active). vk_hdr_encode:
-// like vk_color_record, src's crop as PQ code values (RGBA16F, crop {0, 0, w, h}). vk_hdr_ui_target / vk_hdr_ui_compose:
+// like vk_color_record, src's crop as PQ code values (RGBA16F, crop {0, 0, w, h}), the scene set by vk_hdr_set_scene
+// taking the window texture's place where it was not drawn over. vk_hdr_ui_target / vk_hdr_ui_compose:
 // the in-game menu's RGBA8 target, then blended onto the swapchain image. vk_hdr_to_srgb8: 10-bit PQ pixels to sRGB bytes.
 int vk_hdr_wanted(void);
 void vk_hdr_off(void);   // probes that read back 8-bit swapchain pixels: SDR whatever the setting
@@ -345,9 +346,11 @@ typedef struct {
                                    // than the game's (vk_texture.c texture_scale_of): width and height above are the
                                    // larger ones, the game's regions are multiplied by it
 } VkTexImage;
-// The window texture the backend presents (vk_backend.c): *image and *format become the float picture the game copied
-// into it, when the last draw into it was that copy and the swapchain is HDR10.
-void vk_hdr_present_source(const VkTexImage *win, VkImage *image, VkFormat *format);
+// The window texture the backend presents (vk_backend.c): *scene and *format become the float scene (its size or
+// smaller) a draw into it sampled since its last present, when the swapchain is HDR10; else *scene is VK_NULL_HANDLE.
+// vk_hdr_set_scene: the present thread hands that scene to the vk_hdr_encode of the blit that follows.
+void vk_hdr_present_source(const VkTexImage *win, VkImage *scene, VkFormat *format);
+void vk_hdr_set_scene(VkImage scene, VkFormat fmt);
 void vk_hdr_image_gone(VkImage image);
 const VkTexImage *vk_texture_get(const tex_t *t);   // created and made current; NULL for BUFFER or unmapped formats
 // A texture slot; a slot whose texture was finalized follows the live texture at the same storage (hle_nvn.c).

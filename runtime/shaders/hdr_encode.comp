@@ -1,20 +1,30 @@
 #version 450
-// HDR10 encode on the present (runtime/vk_hdr.c vk_hdr_encode): the game's picture, crop rectangle at offset, linear
-// Rec. 709 with the HUD's white at 1.0 (an sRGB view decodes the 8-bit window texture), into an RGBA16F image of PQ
-// code values in Rec. 2020 that FSR 1 or the blit then scale into the HDR10 swapchain. p.x: nits of 1.0, p.y: the
-// display's peak in nits, p.z: 1 when the source holds sRGB-encoded values in a UNORM format.
-// PQ: SMPTE ST 2084; the Rec. 709 to Rec. 2020 matrix: ITU-R BT.2087.
+// HDR10 encode on the present (runtime/vk_hdr.c vk_hdr_encode): the game's picture, crop rectangle at offset, into an
+// RGBA16F image of PQ code values in Rec. 2020 that FSR 1 or the blit then scale into the HDR10 swapchain.
+// src: the window texture the game presents (8-bit: the SMAA'd scene with the HUD and menus over it; an sRGB view
+// decodes it, p.z = 1 when it holds sRGB codes in a UNORM format). scene (p.w = 1, a linear sampler): the tonemap's
+// float target, the window's size or smaller with its shape, sRGB-encoded and continued above 1
+// (shaders/hdr_tonemap.frag). A window pixel equal to the clamped scene
+// pixel, or to its blend with one axis neighbour (SMAA), is the scene, shown at q.x nits for 1.0 and from the scene
+// where that holds light above 1; any other pixel was drawn over it (the HUD, a menu) and is shown at p.x nits.
+// p.y: the display's peak in nits. PQ: SMPTE ST 2084; the Rec. 709 to Rec. 2020 matrix: ITU-R BT.2087.
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D src;
 layout(binding = 1, rgba16f) uniform writeonly image2D dst;
+layout(binding = 2) uniform sampler2D scene;
 layout(push_constant) uniform P {
     ivec2 offset;
     ivec2 size;
     vec4 p;
+    vec4 q;
 } pc;
 
-vec3 srgb_decode(vec3 c) {
+vec3 srgb_decode(vec3 c) {   // also above 1, for the scene's continued encode
     return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), greaterThan(c, vec3(0.04045)));
+}
+
+vec3 srgb_encode(vec3 c) {
+    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, greaterThan(c, vec3(0.0031308)));
 }
 
 vec3 pq(vec3 nits) {
@@ -26,9 +36,32 @@ vec3 pq(vec3 nits) {
 void main() {
     ivec2 at = ivec2(gl_GlobalInvocationID.xy);
     if (any(greaterThanEqual(at, pc.size))) return;
-    vec3 c = max(texelFetch(src, at + pc.offset, 0).rgb, vec3(0.0));
-    if (pc.p.z > 0.5) c = srgb_decode(clamp(c, 0.0, 1.0));
+    ivec2 px = at + pc.offset;
+    vec3 c = max(texelFetch(src, px, 0).rgb, vec3(0.0));
+    vec3 code = pc.p.z > 0.5 ? clamp(c, 0.0, 1.0) : srgb_encode(clamp(c, 0.0, 1.0));   // the window pixel as stored
+    vec3 lin = pc.p.z > 0.5 ? srgb_decode(code) : c;
+    vec3 nits = lin * pc.p.x;
+    if (pc.p.w > 0.5) {
+        // the scene at this window pixel's centre (bilinear: exact at the same size, the scaling draw's filter on a
+        // smaller scene), and its neighbours one window pixel along each axis
+        vec2 texel = 1.0 / vec2(textureSize(src, 0)), uv = (vec2(px) + 0.5) * texel;
+        vec3 s = max(textureLod(scene, uv, 0.0).rgb, vec3(0.0)), sc = min(s, vec3(1.0));
+        const float tol = 1.5 / 255.0;   // the window texture's rounding
+        // the scene where the window pixel is the clamped scene pixel, or a blend of it with at most half of one axis
+        // neighbour (SMAA's neighbourhood blend); a HUD or menu pixel is neither
+        bool is_scene = all(lessThanEqual(abs(code - sc), vec3(tol)));
+        const vec2 axis[4] = vec2[4](vec2(1, 0), vec2(-1, 0), vec2(0, 1), vec2(0, -1));
+        for (int i = 0; i < 4 && !is_scene; i++) {
+            vec3 d = min(textureLod(scene, uv + axis[i] * texel, 0.0).rgb, vec3(1.0)) - sc;
+            float dd = dot(d, d);
+            if (dd < tol * tol) continue;
+            float t = clamp(dot(code - sc, d) / dd, 0.0, 0.5);
+            is_scene = all(lessThanEqual(abs(code - (sc + t * d)), vec3(tol)));
+        }
+        // a highlight comes from the scene; the rest keeps the window's anti-aliasing
+        if (is_scene) nits = (any(greaterThan(s, vec3(1.0))) ? srgb_decode(s) : lin) * pc.q.x;
+    }
     const mat3 to2020 = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0114, 0.8956);
-    vec3 nits = min(max(to2020 * c, vec3(0.0)) * pc.p.x, vec3(pc.p.y));
+    nits = min(max(to2020 * nits, vec3(0.0)), vec3(pc.p.y));
     imageStore(dst, at, vec4(pq(nits), 1.0));
 }

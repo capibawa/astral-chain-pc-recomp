@@ -34,7 +34,12 @@
 
 #define WEAK __attribute__((weak))
 
-typedef struct { VkImage image; VkFormat format; int w, h, has_crop, crop[4]; uint64_t frame, at, queued, value; } PresentJob;
+typedef struct {
+    VkImage image, scene;   // scene: AC_HDR's float scene beside the window texture (vk_hdr_present_source), or none
+    VkFormat format, scene_format;
+    int w, h, has_crop, crop[4];
+    uint64_t frame, at, queued, value;
+} PresentJob;
 
 static PlatMutex pl = PLAT_MUTEX_INIT;
 static PlatCond pcv = PLAT_COND_INIT;   // job queued, job taken, job submitted
@@ -60,6 +65,7 @@ static void present_main(void *arg) {
         plat_cond_broadcast(&pcv);
         plat_mutex_unlock(&pl);
         if (flight_on) vk_thumbs_frame(j.frame);
+        vk_hdr_set_scene(j.scene, j.scene_format);   // read by the HDR encode in this blit
         vk_present_blit(j.image, VK_IMAGE_LAYOUT_GENERAL, j.format, j.w, j.h, j.has_crop ? j.crop : NULL);
         uint64_t f = vk_sync_submit(NULL, 0);   // a timeline value after the blit: deferred destruction waits for the blit too
         if (j.value && f != j.value)
@@ -125,7 +131,7 @@ static void present_image(const tex_t *t, const int crop[4], uint64_t at_ns, uin
     }
     PresentJob j = {.image = img->image, .format = img->format, .w = (int)img->width, .h = (int)img->height, .frame = frame,
                     .at = at_ns, .queued = queued, .value = value};
-    vk_hdr_present_source(img, &j.image, &j.format);   // AC_HDR: the float picture the game copied into it, same size
+    vk_hdr_present_source(img, &j.scene, &j.scene_format);   // AC_HDR: the scene the game drew into it, same size
     if (crop) {
         j.has_crop = 1;
         for (int i = 0; i < 4; i++) j.crop[i] = (int)lroundf((float)crop[i] * img->scale);

@@ -646,8 +646,10 @@ static void tab_screen(float scale) {
     opt_group(UI_MENU_HDR_GROUP);
     opt_toggle("AC_HDR", UI_MENU_HDR, UI_MENU_HDR_DESC);
     opt_slider("AC_HDR_PEAK_NITS", UI_MENU_HDR_PEAK, 400, 10000, UI_MENU_HDR_PEAK_DESC, 50, "%.0f");
-    opt_slider("AC_HDR_GAME_NITS", UI_MENU_HDR_GAME, 80, 500, UI_MENU_HDR_GAME_DESC, 5, "%.0f");
-    opt_slider("AC_HDR_UI_NITS", UI_MENU_HDR_UI, 80, 500, UI_MENU_HDR_UI_DESC, 5, "%.0f");
+    // 1-nit steps; held, a row moves ten at a time over this range (option_rows.cpp opt_slider)
+    opt_slider("AC_HDR_GAME_NITS", UI_MENU_HDR_GAME, 80, 500, UI_MENU_HDR_GAME_DESC, 1, "%.0f");
+    opt_slider("AC_HDR_UI_NITS", UI_MENU_HDR_UI, 80, 500, UI_MENU_HDR_UI_DESC, 1, "%.0f");
+    opt_slider("AC_HDR_HUE", UI_MENU_HDR_HUE, 0, 100, UI_MENU_HDR_HUE_DESC, 5, "%.0f %%");
     opt_end();
 }
 
