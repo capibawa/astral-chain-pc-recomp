@@ -57,6 +57,7 @@ void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);
 void res_game_size(unsigned out[2]);
 const char *res_output_asked(void);
+int res_scene_live(void);
 int rt_patch_set(const char *name);
 double frame_step_limit_hz(void);
 extern const int rt_game_version;
@@ -615,14 +616,18 @@ static const char *present_note(void) {
 // greyed out under it and shows DLSS, which DLAA runs at full resolution. The quality row needs the scene patch set
 // (recomp/patches-v101.txt) and upscaling on; sharpness follows it in every mode; the DLSS model and trails rows show
 // while DLAA or DLSS runs.
+// Both settings are live once what they need was set up at start, so their rows carry "after restart" only for a choice
+// this run cannot apply: DLAA or DLSS while NGX was not loaded (dlss_state 2), and upscaling while the scene patch set
+// stayed off because nothing temporal was set at start (resolution.c res_scene_live).
 static void rows_antialiasing(void) {
     int dlss = vk_dlaa_dlss_state(), run = vk_dlaa_running();
     const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
+    const char *restart = menu_text(UI_MENU_AFTER_RESTART);
     {
         static const char *const vals[] = {"off", "smaa", "dlaa"};
         const char *names[] = {ui_text(UI_MENU_AA_OFF), ui_text(UI_MENU_AA_SMAA), ui_text(UI_MENU_AA_DLAA)};
         opt_choice_list("AC_ANTI_ALIASING", UI_MENU_AA, vals, names, dlss ? 3 : 2, UI_MENU_AA_DESC,
-                        !dlss && !strcmp(aa, "dlaa") ? 1 : -1);
+                        !dlss && !strcmp(aa, "dlaa") ? 1 : -1, dlss == 2 && !strcmp(aa, "dlaa") ? restart : nullptr);
     }
     bool dlaa = !strcmp(aa, "dlaa") && dlss;
     if (dlaa) opt_disable_next(UI_MENU_UPSCALING_BY_DLAA);
@@ -639,7 +644,10 @@ static void rows_antialiasing(void) {
         }
         if (cur < 0) cur = 0;   // a stored dlss where it cannot run: Off is what runs
         if (dlaa) cur = 2;      // DLAA is DLSS at full resolution: shown as DLSS, the stored choice kept for later
-        opt_choice_list("AC_UPSCALING", UI_MENU_UPSCALING, vals, names, n, UI_MENU_UPSCALING_DESC, cur);
+        bool later = !dlaa && strcmp(up, "off") &&
+                     ((rt_patch_set("scene") >= 0 && !res_scene_live()) || (dlss == 2 && !strcmp(up, "dlss")));
+        opt_choice_list("AC_UPSCALING", UI_MENU_UPSCALING, vals, names, n, UI_MENU_UPSCALING_DESC, cur,
+                        later ? restart : nullptr);
     }
     if (rt_patch_set("scene") >= 0 && strcmp(up, "off") && !dlaa) {
         static const UiTextId q[] = {UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED, UI_MENU_DLSS_PERFORMANCE,

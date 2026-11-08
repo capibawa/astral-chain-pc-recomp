@@ -599,6 +599,8 @@ int res_dlss_mode(const char *m) {
     return 1;
 }
 
+int res_scene_live(void) { return R.live; }
+
 static unsigned page_size(int i) {
     float v;
     memcpy(&v, (const uint8_t *)rt_patch_page() + 16 + 4 * i, sizeof v);
