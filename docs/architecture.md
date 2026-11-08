@@ -145,8 +145,9 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   shader (translator patch 0012) and last frame's blocks. Astral Chain hands those blocks out at new addresses every
   frame, so `vk_mvprev.c` keeps its own copy of each object's blocks and finds the object again next frame by its draw
   (program, index and vertex buffers, counts) and position; objects whose blocks did not change are left to the camera's
-  vectors. The scene camera is the `c3` block most scene draws bind (a few bind another camera); a camera cut (the view
-  turns over 30 degrees or moves over 5 units in a frame) starts a new DLSS history. `dlss_preset` picks the DLSS model
+  vectors. The scene camera is the `c3` block most scene draws bind (a few bind another camera); a camera cut (in one frame
+  the view turns, moves and zooms by more than one limit's worth together: 30 degrees, 5 units, 2 stops of focal length)
+  starts a new DLSS history, and so do 6 presents in a row without the scene (a load, a movie). `dlss_preset` picks the DLSS model
   (default: NVIDIA's per mode, K for DLAA); `AC_DLAA_TIMES=1` logs its GPU and CPU cost and `AC_DLAA_MVDEBUG=1` shows
   the motion vectors in place of the picture. `dlss_char_mask` (off by default) adds DLSS's bias mask where pixels move
   on their own and where they were last frame. `AC_MV_CHECK=<frames>` measures how well the vectors explain the picture

@@ -333,7 +333,9 @@ static struct {
     uint64_t cuts;                         // camera cuts (mv_pass): a new history
     double view_prev[16];                  // last frame's view (rows 0-3 of the camera block), for cuts
     int view_ok;
-    uint64_t why[3];             // history resets: scene size changed, no camera, scene target changed
+    double focal_prev;           // last frame's projection y scale (cot of half the vertical FOV), for cuts
+    uint32_t gap;                // presents in a row without the DLAA point, up to the last one
+    uint64_t why[4];             // history resets: scene size changed, no camera, scene target changed, gap
     int on;                      // the dlaa setting, read at each present (the menu switches it live)
     int preset, preset_dirty;    // the DLSS model features are created with (preset_value); a change pending
     unsigned cfg_seen;           // cfg_version when preset was read
@@ -555,6 +557,8 @@ static void times_begin(VkCommandBuffer cb) {
 #define MVM_SLOTS 16u    // frames the GPU may still be reading the reprojection blocks of
 #define CUT_DEG 30.0     // a camera cut: the view turned more than this in one frame (degrees)
 #define CUT_DIST 5.0     // or moved more than this (units, metres)
+#define CUT_ZOOM 2.0     // or its focal length changed by more than this many stops (a factor of 4)
+#define GAP_PRESENTS 6u  // presents in a row without the DLAA point (100 ms at 60 fps) that start a new history
 
 static int mv_init(void) {
     if (D.mv_ok >= 0) return D.mv_ok;
@@ -691,6 +695,9 @@ static int mv_pass(VkExec *ex, struct Size *e, VkImageView zv, float jx, float j
     *masked = 0;
     const float *cr = mv_init() && D.cam_addr ? (const float *)vk_usnap_bytes(D.cam_addr + CAM_VP, 64) : NULL;
     const float *vw = cr ? (const float *)vk_usnap_bytes(D.cam_addr, 64) : NULL;   // the view (rows 0-3), for cuts
+    const float *pj = cr ? (const float *)vk_usnap_bytes(D.cam_addr + 64, 64) : NULL;   // the projection (rows 4-7)
+    // its y scale, a diagonal element and so the same in either matrix order; the jitter moves the viewport, not this
+    double focal = pj && isfinite(pj[5]) ? fabs((double)pj[5]) : 0;
     if (!cr) {
         D.mv_none++;
         D.cam_prev_ok = 0, D.view_ok = 0, e->obj_ok = 0;
@@ -709,10 +716,13 @@ static int mv_pass(VkExec *ex, struct Size *e, VkImageView zv, float jx, float j
             }
     memcpy(D.cam_prev, cur_vp, sizeof cur_vp);
     D.cam_prev_ok = 1;
-    // A camera cut (a cutscene's next shot, a respawn): the view turned more than CUT_DEG or moved more than CUT_DIST
-    // units (metres) in one frame, which no continuous camera does at 60 fps. The view, not the picture, is compared: a
-    // cutscene's fast zoom moves the picture's corners by half the screen a frame for seconds. The history is then of
-    // another shot, so DLSS starts a new one from zero motion, as NVIDIA's DLSS guide asks for cuts.
+    // A camera cut (a cutscene's next shot, a respawn): the view turned more than CUT_DEG, moved more than CUT_DIST
+    // units (metres) or changed its focal length by more than CUT_ZOOM stops in one frame, which no continuous camera
+    // does at 60 fps. The three count together, each as its share of its limit, so a cut to a nearby angle or a closer
+    // shot along the same line (a little of each) is one too. The view and projection, not the picture, are compared: a
+    // cutscene's fast zoom moves the picture's corners by half the screen a frame for seconds, which is why the focal
+    // length's limit is wide. The history is then of another shot, so DLSS starts a new one from zero motion, as NVIDIA's
+    // DLSS guide asks for cuts.
     int cut = 0;
     if (have_m && vw && D.view_ok) {
         double tr = 0, dist2 = 0;   // trace of R_prev R_cur^T; camera positions -R^T t
@@ -723,14 +733,17 @@ static int mv_pass(VkExec *ex, struct Size *e, VkImageView zv, float jx, float j
             for (int r = 0; r < 3; r++) pc[k] -= vw[r * 4 + k] * vw[r * 4 + 3], pp[k] -= D.view_prev[r * 4 + k] * D.view_prev[r * 4 + 3];
         for (int k = 0; k < 3; k++) dist2 += (pc[k] - pp[k]) * (pc[k] - pp[k]);
         double c = (tr - 1) / 2, deg = acos(c > 1 ? 1 : c < -1 ? -1 : c) * 57.29577951308232;
-        cut = deg > CUT_DEG || dist2 > CUT_DIST * CUT_DIST;
-        if (cut && ++D.cuts <= 20)
-            rt_log("dlaa: camera cut at DLAA frame %llu (turned %.0f degrees, moved %.1f): new history",
-                   (unsigned long long)D.evals, deg, sqrt(dist2));
+        double zoom = focal > 0 && D.focal_prev > 0 ? fabs(log2(focal / D.focal_prev)) : 0;
+        double score = deg / CUT_DEG + sqrt(dist2) / CUT_DIST + zoom / CUT_ZOOM;
+        cut = score > 1.0;
+        if (cut && ++D.cuts <= 40)
+            rt_log("dlaa: camera cut at DLAA frame %llu (turned %.1f degrees, moved %.2f, zoomed %.2f stops; score %.2f): "
+                   "new history", (unsigned long long)D.evals, deg, sqrt(dist2), zoom, score);
     }
     // kept on every way out, or the first frame after a gap in the motion is measured against the view before the gap
     if (vw) for (int i = 0; i < 16; i++) D.view_prev[i] = vw[i];
     D.view_ok = vw != NULL;
+    D.focal_prev = focal;
     if (!have_m || cut) return e->obj_ok = 0;   // nothing to reproject into: zero motion, new history
     uint32_t ms = D.mvm_slot++ % MVM_SLOTS;
     float *blk = (float *)(D.mvm_map + (size_t)ms * D.mvm_stride);
@@ -912,6 +925,10 @@ static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *ds
     struct Size *e = size_for(cb, w, h, ow, oh);
     if (!e) return dl_fail("work image creation", 0);
     if (e != D.last) D.reset = 1, D.why[0]++, e->obj_ok = 0;   // another size's history is from another moment
+    // A run of presents without the scene (a load, a movie, a menu that hides it): what the game shows next may differ
+    // where the camera did not move, which a cut test cannot see. Counted in presents, not time, so a slow frame (a
+    // shader build, a hitch) that DLSS still ran on keeps its history.
+    if (D.gap >= GAP_PRESENTS) D.reset = 1, D.why[3]++, e->obj_ok = 0;
     if (!D.params && !NGX_OK(N.alloc_params(&D.params))) return dl_fail("parameter allocation", 0);
     NgxParam *p = D.params;
     VkImageView zv = vk_exec_target_view(z->img, z->format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, z->level,
@@ -1044,11 +1061,11 @@ static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *ds
     if (++D.evals == 1 || D.evals == 300 || D.evals % 3600 == 0)   // 300: one early line with the frames counted
         rt_log("dlaa: %llu frames anti-aliased (scene %ux%u, output %ux%u; %llu frames without the DLAA point, %llu with camera "
                "motion, %llu with the characters' mask, %llu without a camera, %llu jitter holds; resets: %llu size, %llu "
-               "camera (%llu cuts), %llu target)",
+               "camera (%llu cuts), %llu target, %llu gap)",
                (unsigned long long)D.evals, w, h, ow, oh, (unsigned long long)D.frames_missed,
                (unsigned long long)D.mv_frames, (unsigned long long)D.masked, (unsigned long long)D.mv_none,
                (unsigned long long)D.holds, (unsigned long long)D.why[0], (unsigned long long)D.why[1],
-               (unsigned long long)D.cuts, (unsigned long long)D.why[2]);
+               (unsigned long long)D.cuts, (unsigned long long)D.why[2], (unsigned long long)D.why[3]);
 }
 
 static int scene_color(VkFormat f) {
@@ -1149,11 +1166,12 @@ void vk_dlaa_frame(void) {
         // either way the next DLAA frame starts a new history from an unjittered frame
         D.reset = 1, D.cam_prev_ok = D.view_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;
         D.comp_ok = 0;
-        D.hold = 0;
+        D.hold = 0, D.gap = 0;
         return;
     }
     if (!dl_active()) return;
     if (!D.done) D.frames_missed++;
+    D.gap = D.done ? 0 : D.gap + 1;   // evaluate resets the history after GAP_PRESENTS of these
     if (D.jit_used && !D.done) D.hold = 60, D.holds++;   // jittered but not resolved: that frame shook
     else if (D.hold) D.hold--;
     if (!D.done) D.jit_ok = 0;
