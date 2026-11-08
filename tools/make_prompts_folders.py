@@ -187,13 +187,13 @@ def draw(img, orig, key, body, cut, dy=0.0):
     """Clear the cell and draw body minus cut, centred where the game's own icon is (its UV rectangle)."""
     x0, y0, x1, y1 = glyph_box(cell_view(orig, key))
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    a = G.render(CELL_W, CELL_H, body(cx, cy), cut(cx, cy + dy))
+    a, c = G.render_icon(CELL_W, CELL_H, body, cut(cx, cy + dy), cx, cy)
     cell = cell_view(img, key)
-    alpha = np.round(a * 255).astype(np.uint8)
-    # As in the game's own icons: white wherever any coverage is, black where none is. The UI blends the colour of
-    # fully transparent texels too, so white there showed as a grey box around the icon.
-    cell[..., :3] = np.where(alpha[..., None] > 0, 255, 0).astype(np.uint8)
-    cell[..., 3] = alpha
+    # As in the game's own icons (prompt_glyphs.render_icon): alpha is the body minus the symbol, the colour the
+    # body grown by the rim, black beyond it. The UI blends the colour of transparent texels too: white over the
+    # whole cell showed as a grey box, colour only under the alpha lost the rim.
+    cell[..., :3] = np.round(c * 255).astype(np.uint8)[..., None]
+    cell[..., 3] = np.round(a * 255).astype(np.uint8)
 
 
 def copy_icon(img, orig, dst, src):

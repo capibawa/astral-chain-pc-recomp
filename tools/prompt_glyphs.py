@@ -77,19 +77,22 @@ def _rounded_rect(px, py, x0, y0, x1, y1, r_top, r_bottom):
     return inside
 
 
-# ---- bodies, centred on (cx, cy), the sizes of the game's own icons
-def circle(cx, cy, d=22.0):
-    return lambda px, py: np.hypot(px - cx, py - cy) <= d / 2
+# ---- bodies, centred on (cx, cy), the sizes of the game's own icons. grow widens the outline by that many pixels on
+# every side (the colour layer, render_icon).
+def circle(cx, cy, d=22.0, grow=0.0):
+    return lambda px, py: np.hypot(px - cx, py - cy) <= d / 2 + grow
 
 
-def bumper(cx, cy, w=24.0, h=16.0):
+def bumper(cx, cy, w=24.0, h=16.0, grow=0.0):
     """LB, RB, L1, R1: a rounded box, as the game's SL and SR."""
-    return lambda px, py: _rounded_rect(px, py, cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, 5.0, 5.0)
+    return lambda px, py: _rounded_rect(px, py, cx - w / 2 - grow, cy - h / 2 - grow, cx + w / 2 + grow,
+                                        cy + h / 2 + grow, 5.0 + grow, 5.0 + grow)
 
 
-def trigger(cx, cy, w=24.0, h=22.0):
+def trigger(cx, cy, w=24.0, h=22.0, grow=0.0):
     """LT, RT, L2, R2: a box rounded more at the top, as the game's ZL and ZR."""
-    return lambda px, py: _rounded_rect(px, py, cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, 7.0, 2.0)
+    return lambda px, py: _rounded_rect(px, py, cx - w / 2 - grow, cy - h / 2 - grow, cx + w / 2 + grow,
+                                        cy + h / 2 + grow, 7.0 + grow, 2.0 + grow)
 
 
 # ---- cut-outs
@@ -149,3 +152,17 @@ def render(w, h, body, cut):
     px, py = _grid(w, h)
     m = body(px, py) & ~cut(px, py)
     return m.reshape(h, SS, w, SS).mean(axis=(1, 3))
+
+
+# The game's icons keep two shapes: alpha is the body with the symbol cut out, the colour is the whole body grown by
+# about 2.25 pixels (measured on the A icon: half coverage at 2.25 pixels past the alpha's), symbol not cut. The UI
+# shows that colour layer as the thin grey rim around each icon and the grey inside its symbol.
+RIM = 2.25
+
+
+def render_icon(w, h, body, cut, cx, cy):
+    """(alpha, colour) coverage pair of an icon whose body constructor is body(cx, cy, grow=...)."""
+    alpha = render(w, h, body(cx, cy), cut)
+    px, py = _grid(w, h)
+    colour = body(cx, cy, grow=RIM)(px, py).reshape(h, SS, w, SS).mean(axis=(1, 3))
+    return alpha, colour
