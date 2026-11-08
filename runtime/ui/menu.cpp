@@ -604,7 +604,7 @@ static const char *present_note(void) {
 // Anti-aliasing and temporal upscaling (runtime/vk_dlaa.c taa_pick decides what runs from these). DLAA and DLSS are
 // offered where DLSS can run, or may after a restart (NGX is loaded only when a setting at start asks for it); where it
 // cannot, a stored dlaa shows as SMAA and a stored dlss as Off, which is what runs. DLAA takes precedence: upscaling is
-// greyed out under it. The quality row needs the scene patch set (recomp/patches-v101.txt) and upscaling on; the DLSS
+// greyed out under it and shows DLSS, which DLAA runs at full resolution. The quality row needs the scene patch set (recomp/patches-v101.txt) and upscaling on; the DLSS
 // model and trails rows show while DLAA or DLSS runs.
 static void rows_antialiasing(void) {
     int dlss = vk_dlaa_dlss_state(), run = vk_dlaa_running();
@@ -629,6 +629,7 @@ static void rows_antialiasing(void) {
             vals[n] = all[i], names[n++] = ui_text(ids[i]);
         }
         if (cur < 0) cur = 0;   // a stored dlss where it cannot run: Off is what runs
+        if (dlaa) cur = 2;      // DLAA is DLSS at full resolution: shown as DLSS, the stored choice kept for later
         opt_choice_list("AC_UPSCALING", UI_MENU_UPSCALING, vals, names, n, UI_MENU_UPSCALING_DESC, cur);
     }
     if (rt_patch_set("scene") >= 0 && strcmp(up, "off") && !dlaa) {

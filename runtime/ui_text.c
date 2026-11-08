@@ -135,7 +135,7 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                "after a restart.",
     [UI_MENU_UPSCALING_OFF] = "Off", [UI_MENU_UPSCALING_AUTO] = "Automatic", [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS",
     [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
-    [UI_MENU_UPSCALING_BY_DLAA] = "Not used with DLAA, which renders at full resolution",
+    [UI_MENU_UPSCALING_BY_DLAA] = "DLAA runs NVIDIA DLSS at full resolution",
     [UI_MENU_UPSCALING_QUALITY] = "Upscaling quality",
     [UI_MENU_UPSCALING_QUALITY_DESC] = "How much smaller the 3D scene is drawn: Quality, Balanced, Performance and Ultra "
                                        "Performance draw it at 67, 58, 50 and 33 % of the game resolution (times the 3D "
