@@ -197,15 +197,19 @@ def draw(img, orig, key, body, cut, dy=0.0):
 
 
 def copy_icon(img, orig, dst, src):
-    """The game's own icon of cell src, moved into cell dst centred on dst's own icon."""
+    """The game's own icon of cell src, moved into cell dst centred on dst's own icon. The centring uses the alpha
+    boxes; the copy takes every texel with any channel set, so the colour layer's rim past the alpha moves too."""
     s = cell_view(orig, src)
     sx0, sy0, sx1, sy1 = glyph_box(s)
     dx0, dy0, dx1, dy1 = glyph_box(cell_view(orig, dst))
     ox = int(round((dx0 + dx1) / 2 - (sx0 + sx1) / 2))
     oy = int(round((dy0 + dy1) / 2 - (sy0 + sy1) / 2))
+    ys, xs = np.nonzero(s.any(axis=2))
+    cx0, cy0 = max(xs.min(), -ox, 0), max(ys.min(), -oy, 0)
+    cx1, cy1 = min(xs.max() + 1, CELL_W - ox), min(ys.max() + 1, CELL_H - oy)
     cell = cell_view(img, dst)
     cell[:] = 0
-    cell[sy0 + oy:sy1 + oy, sx0 + ox:sx1 + ox] = s[sy0:sy1, sx0:sx1]
+    cell[cy0 + oy:cy1 + oy, cx0 + ox:cx1 + ox] = s[cy0:cy1, cx0:cx1]
 
 
 def make_variant(orig, controller, label):
