@@ -447,7 +447,7 @@ static int usage(const char *argv0) {
 }
 
 // Paths for a copied folder (tools/package_build.py). Per path: AC_EXEFS, AC_ROMFS, AC_PROFILE_DIR, else the
-// folder next to astralchain.exe (exefs with main.npdm, romfs with romfs.bin, any profile folder) if it is there, else the
+// folder next to astralchain.exe (exefs with main.npdm, romfs with romfs.bin or romfs-map.bin, any profile folder) if it is there, else the
 // path baked in at build time. A relative value is relative to astralchain.exe's folder.
 static char pp_exefs[PLAT_PATH_MAX * 2], pp_romfs[PLAT_PATH_MAX * 2], pp_profile[PLAT_PATH_MAX * 2];
 
@@ -474,7 +474,10 @@ static void portable_paths(RtConfig *c) {
     if (!cut) return;
     *cut = 0;
     c->exefs = portable_path(exe, "AC_EXEFS", "exefs", "main.npdm", pp_exefs, sizeof pp_exefs, c->exefs);
-    c->romfs = portable_path(exe, "AC_ROMFS", "romfs", "romfs.bin", pp_romfs, sizeof pp_romfs, c->romfs);
+    // romfs: the merged image, else the map that reads it from the dump files (runtime/romfs_source.c).
+    const char *romfs = portable_path(exe, "AC_ROMFS", "romfs", "romfs.bin", pp_romfs, sizeof pp_romfs, NULL);
+    c->romfs = romfs ? romfs : portable_path(exe, "AC_ROMFS", "romfs", "romfs-map.bin", pp_romfs, sizeof pp_romfs,
+                                             c->romfs);
     c->profile = portable_path(exe, "AC_PROFILE_DIR", "profile", NULL, pp_profile, sizeof pp_profile, c->profile);
 }
 

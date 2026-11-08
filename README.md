@@ -51,6 +51,10 @@ It then extracts the game's data, merges the update into it, lifts the game's co
 your machine: about a minute on a fast CPU, a few minutes on a slow one, about 14 GB for the installed folder and about
 11 GB of temporary space while the update is merged. The setup carries no game data and no code derived from the game.
 
+To save those 10 GB, tick **Read the game data from these files instead of copying it**: the install folder then holds
+no copy of the game data (about 4 GB in all), and the game reads it from your base game, update and keys files at
+every start, so keep those three where they are.
+
 You need Windows 10 or 11 on x86-64 (SSE4.2 at least) and a Vulkan 1.3 graphics card. The exe is unsigned, so
 SmartScreen warns on the first start.
 

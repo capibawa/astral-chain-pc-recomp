@@ -137,6 +137,7 @@ class Form:
     keys: str = ''
     lang: str = ''
     dest: str = ''
+    romfs_source: str = ''   # 'image', 'dumps', or '' to keep what the install recorded (installer/steps.py romfs_mode)
 
     def installed_state(self):
         """The recorded state of the install folder (astralchain-install.json), or None. Never raises."""
@@ -182,6 +183,8 @@ class Form:
                             ('--lang', self.lang), ('--dest', self.dest)):
             if value.strip():
                 cmd += [flag, value.strip()]
+        if self.romfs_source:
+            cmd += ['--romfs-source', self.romfs_source]
         if root:
             cmd += ['--root', str(root)]
         if temp:

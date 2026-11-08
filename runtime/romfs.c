@@ -2,7 +2,8 @@
 // contributors).
 // Read-only game RomFS backed by the player's extracted image.
 //
-// Input: <romfs>/romfs.bin (rt_config()->romfs), whose six IVFC levels and SHA-256 tools/extract.py verified, and
+// Input: <romfs>/romfs.bin (rt_config()->romfs), whose six IVFC levels and SHA-256 tools/extract.py verified, or
+// <romfs>/romfs-map.bin, which reads the same image from the player's dump files (romfs_source.c), and
 // romfs-index.bin next to totk.exe (AC_ROMFS_INDEX overrides), which tools/romfs_index.py wrote together with
 // romfs_config.h. fs_init checks the index's SHA-256 and layout and the image size. The full 17 GB hash runs only with
 // AC_ROMFS_VERIFY=full; a proof file (.romfs-verified-v1 next to the index, or in AC_ROMFS_PROOF_DIR) keyed by
@@ -40,6 +41,7 @@
 #include "mods.h"
 #include "romfs_config.h"
 #include "romfs_path.h"
+#include "romfs_source.h"
 #include "platform/platform.h"
 #include "restbl.h"
 #include "sha256.h"
@@ -62,7 +64,10 @@ typedef struct { uint64_t index, size; char *path, *name; Identity id; int prio,
 static uint8_t *index_bytes;
 static size_t index_size;
 static uint64_t file_count, strings_offset;
-static PlatFile *image;
+// The image is read through romfs_source.c (romfs.bin, or the dump files romfs-map.bin names); IMAGE stands for it
+// wherever a PlatFile names where bytes come from (read_at, an original file's handle).
+static char image_tag;
+#define IMAGE ((PlatFile *)&image_tag)
 // The RomFS header (0x50 bytes) and the extent of the four metadata tables (directory and file hash/meta) in the image.
 // Astral Chain reads its RomFS through the SDK, which expects the fs service to have written that metadata into the
 // cache buffer MountRom receives; ov_mount_rom builds it there.
@@ -99,7 +104,7 @@ static double now_s(void) { return (double)plat_now_ns() / 1e9; }
 // Bytes read at off (0 at or past the end of the file), -1 on an I/O error.
 static int64_t read_at(PlatFile *f, void *buf, uint32_t n, uint64_t off) {
     mem_thaw((uintptr_t)buf, n);   // the kernel's write would fail on a frozen page instead of faulting
-    int64_t got = plat_file_pread(f, buf, n, off);
+    int64_t got = f == IMAGE ? romfs_src_read(buf, n, off) : plat_file_pread(f, buf, n, off);
     if (got == -2)   // a read-only page in the buffer: a frozen region missed its thaw
         rt_log("RomFS: read of %u bytes into %p refused: the buffer is not writable", n, buf);
     return got < 0 ? -1 : got;
@@ -115,12 +120,18 @@ static int romfs_read_fault(uint64_t addr) {
     uint64_t page = addr & ~0xfffull, off = page - ROMFS_BASE;
     uint32_t n = (uint32_t)((ROMFS_SIZE - off < 0x1000) ? ROMFS_SIZE - off : 0x1000);
     if (!plat_mem_commit(page, 0x1000)) return 0;
-    return read_at(image, (void *)page, n, off) == n;
+    return read_at(IMAGE, (void *)page, n, off) == n;
 }
 
 static Identity identity_of(PlatFile *f) {
     PlatFileId i;
-    need(plat_file_id(f, &i), "file information");
+    if (f == IMAGE) {   // romfs.bin's own identity, or the map's and its dump files'
+        uint64_t v[5];
+        need(romfs_src_id(v), "file information");
+        i = (PlatFileId){v[0], v[1], v[2], v[3], v[4]};
+    } else {
+        need(plat_file_id(f, &i), "file information");
+    }
     return (Identity){(uint32_t)i.volume, 0, i.file_id, i.size, i.write_time, i.create_time};
 }
 
@@ -162,7 +173,7 @@ static void verify_image(const char *dir) {
     RomfsProof want = {0}, saved;
     memcpy(want.magic, "ACRFS-PROOF-1", sizeof "ACRFS-PROOF-1");
     memcpy(want.sha256, ROMFS_IMAGE_SHA256, sizeof ROMFS_IMAGE_SHA256 < 65 ? sizeof ROMFS_IMAGE_SHA256 : 65);
-    want.id = identity_of(image);
+    want.id = identity_of(IMAGE);
     char path[2100];
     need(snprintf(path, sizeof path, "%s/.romfs-verified-v1", dir) < (int)sizeof path, "proof path");
     if (strcmp(mode, "force")) {
@@ -178,11 +189,11 @@ static void verify_image(const char *dir) {
     }
     rt_log("RomFS: verifying the SHA-256 of %s (%llu bytes)", image_file, (unsigned long long)want.id.size);
     char hex[65];
-    sha_range(image, 0, want.id.size, hex, 1);
+    sha_range(IMAGE, 0, want.id.size, hex, 1);
     if (strcmp(hex, ROMFS_IMAGE_SHA256))
         rt_fatal("RomFS image %s has SHA-256 %s, the extraction recorded %s (extract it again)", image_file, hex,
                  ROMFS_IMAGE_SHA256);
-    Identity after = identity_of(image);
+    Identity after = identity_of(IMAGE);
     need(!memcmp(&after, &want.id, sizeof after), "image changed during verification");
     plat_file_write_atomic(path, &want, sizeof want);
     rt_log("RomFS: image SHA-256 ok");
@@ -272,7 +283,7 @@ static int overlay_load(const char *dir, int optional, int prio) {
         Entry e = {0};
         if (known) {
             e = entry(i);
-            sha_range(image, e.offset, e.size, hex, 0);
+            sha_range(IMAGE, e.offset, e.size, hex, 0);
             if (strcmp(hex, orig)) BAD("RomFS overlay: the original of %s has SHA-256 %s, %s/manifest.tsv says %s",
                                        name, hex, dir, orig);
         } else {
@@ -562,7 +573,7 @@ static void *read_served(const char *rel, Overlay **base, size_t *n, const char 
     }
     for (size_t k = 0; k < noverlay; k++)
         if (overlays[k].index == i) *base = &overlays[k];
-    PlatFile *f = *base ? open_read((*base)->path) : image;
+    PlatFile *f = *base ? open_read((*base)->path) : IMAGE;
     uint64_t off = *base ? 0 : entry(i).offset, size = *base ? (*base)->size : entry(i).size;
     void *in = size && size < (16u << 20) && f ? malloc((size_t)size) : NULL;
     int ok = in && read_at(f, in, (uint32_t)size, off) == (int64_t)size;
@@ -653,7 +664,7 @@ static void restbl_overlay(void) {
     Entry ge = entry(gi);
     void *gz = ge.size < (64u << 20) ? malloc((size_t)ge.size) : NULL;
     Restbl *base = NULL, *out = NULL;
-    if (gz && read_at(image, gz, (uint32_t)ge.size, ge.offset) == (int64_t)ge.size) {
+    if (gz && read_at(IMAGE, gz, (uint32_t)ge.size, ge.offset) == (int64_t)ge.size) {
         base = restbl_unpack(gz, (size_t)ge.size);
         out = restbl_unpack(gz, (size_t)ge.size);
     }
@@ -701,7 +712,7 @@ static void restbl_overlay(void) {
         if (o->index != ADDED) {
             if (!restbl_get(base, key, &entry_size)) continue;   // the game sizes it without the table (streamed)
             Entry e = entry(o->index);
-            uint64_t was = mc ? e.size : content_size(image, e.offset, e.size, o->name);
+            uint64_t was = mc ? e.size : content_size(IMAGE, e.offset, e.size, o->name);
             want = restbl_grow(key, entry_size, was, now, mc);
         } else {
             want = restbl_estimate(key, mc ? now * 8 : now);   // a mesh codec file unpacks to several times its size
@@ -963,19 +974,18 @@ static void init_once(void *param) {
     double t0 = now_s();
     load_index();
     const char *dir = rt_config()->romfs;
-    need(snprintf(image_file, sizeof image_file, "%s/romfs.bin", dir) < (int)sizeof image_file, "image path");
-    image = open_read(image_file);
-    if (!image) rt_fatal("RomFS image %s missing; put romfs.bin into the romfs folder next to totk or set AC_ROMFS",
-                         image_file);
-    PlatFileId sz;
-    need(plat_file_id(image, &sz), "image size");
-    if (sz.size != ROMFS_IMAGE_SIZE)
+    int source = romfs_src_open(dir);
+    need(snprintf(image_file, sizeof image_file, "%s", romfs_src_path()) < (int)sizeof image_file, "image path");
+    if (!source)
+        rt_fatal("RomFS image %s missing (nor romfs-map.bin beside it); run the setup again, put romfs.bin into the "
+                 "romfs folder next to astralchain.exe, or set AC_ROMFS", image_file);
+    if (romfs_src_size() != ROMFS_IMAGE_SIZE)
         rt_fatal("RomFS image %s has %llu bytes, the index was built for %llu", image_file,
-                 (unsigned long long)sz.size, (unsigned long long)ROMFS_IMAGE_SIZE);
+                 (unsigned long long)romfs_src_size(), (unsigned long long)ROMFS_IMAGE_SIZE);
     rt_log("RomFS image %s: size ok (%llu bytes)", image_file, (unsigned long long)ROMFS_IMAGE_SIZE);
     // Parse the RomFS header: the four metadata tables (directory and file hash and meta) sit together at the end of the
     // image; the fs service copies them into the caller's cache buffer on MountRom.
-    if (read_at(image, romfs_header, sizeof romfs_header, 0) == (int64_t)sizeof romfs_header &&
+    if (read_at(IMAGE, romfs_header, sizeof romfs_header, 0) == (int64_t)sizeof romfs_header &&
         ((uint32_t *)romfs_header)[0] == 0x50u) {
         uint64_t *h = (uint64_t *)romfs_header;
         uint64_t dir_hash_off = h[1], dir_hash_size = h[2], dir_meta_off = h[3], dir_meta_size = h[4];
@@ -1005,12 +1015,13 @@ static void init_once(void *param) {
     verify_image(index_dir);
     const char *mm = cfg_get("AC_ROMFS_MMAP");
     if (mm && strcmp(mm, "0")) {
-        const void *v = plat_file_map(image);
+        const void *v = romfs_src_map();
         if (v) {
             image_map = v;
             rt_log("RomFS: mapped read path enabled");
         } else {
-            rt_log("RomFS: mapping failed; using positional reads");
+            rt_log("RomFS: no mapping (%s); using positional reads",
+                   source == ROMFS_SRC_DUMPS ? "the image is read from the dump files" : "mapping failed");
         }
     }
     overlay_init();
@@ -1125,7 +1136,7 @@ static int handle_source(uint64_t h, PlatFile **f, uint64_t *base, uint64_t *siz
         *size = overlays[ov - 1].size;
     } else {
         Entry e = entry(i - 1);
-        *f = image;
+        *f = IMAGE;
         *base = e.offset;
         *size = e.size;
     }
@@ -1138,7 +1149,7 @@ uint32_t romfs_read(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uin
     if (!out || offset < 0 || !handle_source(h, &f, &base, &fsize)) return FS_R_INVALID;
     if ((uint64_t)offset > fsize || (!buffer && size)) return FS_R_INVALID;
     uint64_t n = size < fsize - (uint64_t)offset ? size : fsize - (uint64_t)offset, done = 0;
-    if (f == image && image_map) {
+    if (f == IMAGE && image_map) {
         memcpy(buffer, image_map + base + (uint64_t)offset, (size_t)n);
         done = n;
     }
@@ -1260,10 +1271,10 @@ static void ov_mount_rom(Cpu *c) {
                 dh[3] = dir_meta_off;
                 dh[5] = file_hash_off;
                 dh[7] = file_meta_off;
-                ok = read_at(image, copy + dir_hash_off, (uint32_t)dir_hash_size, h[1]) == (int64_t)dir_hash_size &&
-                     read_at(image, copy + dir_meta_off, (uint32_t)dir_meta_size, h[3]) == (int64_t)dir_meta_size &&
-                     read_at(image, copy + file_hash_off, (uint32_t)file_hash_size, h[5]) == (int64_t)file_hash_size &&
-                     read_at(image, copy + file_meta_off, (uint32_t)h[8], h[7]) == (int64_t)h[8];
+                ok = read_at(IMAGE, copy + dir_hash_off, (uint32_t)dir_hash_size, h[1]) == (int64_t)dir_hash_size &&
+                     read_at(IMAGE, copy + dir_meta_off, (uint32_t)dir_meta_size, h[3]) == (int64_t)dir_meta_size &&
+                     read_at(IMAGE, copy + file_hash_off, (uint32_t)file_hash_size, h[5]) == (int64_t)file_hash_size &&
+                     read_at(IMAGE, copy + file_meta_off, (uint32_t)h[8], h[7]) == (int64_t)h[8];
             }
             if (ok) {
                 mem_thaw((uintptr_t)cache, need_bytes);

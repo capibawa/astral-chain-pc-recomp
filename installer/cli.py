@@ -55,6 +55,10 @@ def main(argv=None):
     ap.add_argument('--temp', type=Path, help='temp folder (default: temp/ of the release on Windows, .setup-temp in '
                                               'the install folder on Linux, build/install-temp in a repository)')
     ap.add_argument('--verify', action='store_true', help='hash every kept file, also those this release made')
+    ap.add_argument('--romfs-source', choices=('image', 'dumps'),
+                    help='image: copy the game data into the install folder as romfs.bin (about 10 GB, the default); '
+                         'dumps: read it from the base game and update files at every start, which must then stay '
+                         'where they are, with the keys file (default: what the install recorded)')
     ap.add_argument('--accept-unknown-version', action='store_true',
                     help='carry on when the game files do not match the reference hashes (the window asks first); '
                          'the game may not run')

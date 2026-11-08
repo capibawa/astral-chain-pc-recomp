@@ -24,6 +24,7 @@
 #include "host.h"
 #include "platform/platform.h"
 #include "romfs_path.h"
+#include "romfs_source.h"
 
 #define AC_APPLICATION_ID 0x01007300020fa000ull
 #define FILE_BASE 0x200000000ull
@@ -1231,10 +1232,13 @@ static uint64_t fs_call(const char *sym, const uint64_t a[6]) {
 #define CALL(sym, ...) fs_call(sym, (const uint64_t[6]){__VA_ARGS__})
 #define RES(sym, ...) ((uint32_t)CALL(sym, __VA_ARGS__))
 
+// f NULL: the image is read from the dump files (romfs-map.bin); the source layer decrypts it, the handle path under
+// test does not take part.
 static int64_t independent_read(PlatFile *f, uint8_t *buf, uint64_t n, uint64_t off) {
     uint64_t done = 0;
     while (done < n) {
-        int64_t r = host_read_at(f, buf + done, (uint32_t)(n - done), off + done);
+        int64_t r = f ? host_read_at(f, buf + done, (uint32_t)(n - done), off + done)
+                      : romfs_src_read(buf + done, (uint32_t)(n - done), off + done);
         if (r <= 0) return -1;
         done += (uint64_t)r;
     }
@@ -1290,8 +1294,11 @@ static uint64_t probe_romfs(void) {
     CHECK(RES(S_MOUNT_ROM, U("../x"), 0, 0) == FS_R_INVALID, "MountRom with a bad name");
     probe_paths();
 
-    PlatFile *image = plat_file_open(romfs_image_path());
-    if (!image) rt_fatal("probe-fs: cannot open the RomFS image");
+    const char *ip = romfs_image_path();
+    size_t ipn = strlen(ip);
+    int from_dumps = ipn >= 13 && !strcmp(ip + ipn - 13, "romfs-map.bin");
+    PlatFile *image = from_dumps ? NULL : plat_file_open(ip);
+    if (!image && !from_dumps) rt_fatal("probe-fs: cannot open the RomFS image");
     uint8_t *a = malloc(HEAD_BYTES), *b = malloc(HEAD_BYTES);
     need(a && b, "probe buffers");
     uint64_t step = count / SAMPLES, bytes = 0, sampled = 0, deep = 0, high = 0, largest = 0, lsize = 0;
@@ -1396,7 +1403,7 @@ static uint64_t probe_romfs(void) {
         ovok += ok;
     }
     if (nov) printf("romfs: %zu of %zu overlay files served from their overlay\n", ovok, nov);
-    plat_file_close(image);
+    if (image) plat_file_close(image);
     free(a);
     free(b);
     return count;

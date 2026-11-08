@@ -36,7 +36,6 @@ try:
     import zstandard
 except ImportError:
     sys.exit("make_prompts_folders.py needs the zstandard package (.venv has it)")
-
 ROOT = Path(__file__).resolve().parent.parent
 
 FOLDERS = (("xbox", "romfs-patches-xbox"), ("playstation", "romfs-patches-playstation"))
@@ -112,7 +111,13 @@ def read_pkz(romfs):
     row = next((f for f in index["files"] if f["path"] == PKZ_PATH), None)
     if row is None:
         sys.exit(f"{romfs}: no {PKZ_PATH} in index.json")
-    with (romfs / "romfs.bin").open("rb") as stream:
+    if (romfs / "romfs.bin").is_file():
+        stream = (romfs / "romfs.bin").open("rb")
+    else:   # romfs-map.bin: the image read from the dump files (needs the cryptography package)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import romfs_source
+        stream = romfs_source.open_image(romfs)
+    with stream:
         stream.seek(row["offset"])
         data = stream.read(row["size"])
     if len(data) != row["size"]:

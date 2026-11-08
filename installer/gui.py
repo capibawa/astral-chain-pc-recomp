@@ -227,6 +227,13 @@ class App:
         self.label(grid, 'ui.dest').grid(row=i + 1, column=0, sticky='w', pady=4)
         ttk.Entry(grid, textvariable=self.vars['dest']).grid(row=i + 1, column=1, sticky='ew', pady=4)
         self.button(grid, 'ui.browse', self.pick_dest).grid(row=i + 1, column=2, padx=(8, 0))
+        # Read the game data from the chosen files at every start instead of copying it (--romfs-source dumps).
+        self.romfs_dumps = tk.BooleanVar(value=False)
+        self.romfs_touched = False
+        box = ttk.Checkbutton(f, variable=self.romfs_dumps, command=lambda: setattr(self, 'romfs_touched', True))
+        self.bind_text(box, 'text', 'ui.romfs_dumps')
+        box.pack(anchor='w', pady=(10, 0))
+        self.label(f, 'ui.romfs_dumps_hint', wraplength=600, justify='left').pack(anchor='w', padx=(22, 0))
         self.update_hint = ttk.Label(f, wraplength=620, justify='left')
         self.update_hint.pack(anchor='w', pady=(8, 0))
         self.form_error = ttk.Label(f, style='Err.TLabel', wraplength=620, justify='left')
@@ -291,7 +298,8 @@ class App:
 
     def form(self):
         return Form(base=self.vars['base'].get(), update=self.vars['update'].get(), keys=self.vars['keys'].get(),
-                    lang=self.selected_lang(), dest=self.vars['dest'].get())
+                    lang=self.selected_lang(), dest=self.vars['dest'].get(),
+                    romfs_source='dumps' if self.romfs_dumps.get() else 'image')
 
     def refresh_form(self):
         form = self.form()
@@ -301,6 +309,8 @@ class App:
             recorded = ini.canonical_language(state.get('lang'))
             if recorded in ini.LANGUAGES and not self.lang_touched:
                 self.vars['lang'].set(self.lang_label(recorded))
+            if not self.romfs_touched:   # an update keeps the recorded form of the game data unless changed here
+                self.romfs_dumps.set(state.get('romfs_source') == 'dumps')
         else:
             self.update_hint.configure(text='')
         self.fit()

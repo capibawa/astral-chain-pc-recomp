@@ -6,7 +6,10 @@ build-cache/logs/<step>-<tool>.log and is read for progress. No Win32 call here:
 built with the bundled clang (hostcheck.c). The port builds the game from the player's base game (1.0.0) and update NSP
 (1.0.1): the update supplies the ExeFS and its BKTR section, which hactool merges with the base RomFS.
 
-Install folder: exefs/, romfs/ (romfs.bin, index.json), profile/, astralchain.exe and its DLLs, romfs-index.bin,
+With --romfs-source dumps no merged copy is written: romfs/ holds romfs-map.bin (tools/romfs_source.py), which reads the
+game data from the player's two files and keys file at every start (runtime/romfs_source.c).
+
+Install folder: exefs/, romfs/ (romfs.bin or romfs-map.bin, index.json), profile/, astralchain.exe and its DLLs, romfs-index.bin,
 ac_xlate.exe, astralchain.ini, astralchain-install.json, build-cache/ (gen/, build/, logs/, the status files and
 rebuild.txt).
 Temp folder (<temp>/<dest name>-<hash>): check/ (the ExeFS of both inputs and their manifests, the host check) and
@@ -38,13 +41,14 @@ from .runner import InstallError, Step
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 try:
     import extract  # noqa: E402
+    import romfs_source  # noqa: E402
     from extract import (DamagedFile, common_tickets, container_entries, identify_update, load_expected,  # noqa: E402
                          load_keys, merge_space, merge_update_romfs, nca_ctr_key, nca_inventory, program_nca)
     TOOLS_IMPORT_ERROR = None
 except ImportError as exc:
     # A release folder whose tools/ is missing or partly copied: the check step names the missing files, so the setup
     # reports check.release_incomplete instead of stopping on an import before it reaches any step.
-    extract = None
+    extract = romfs_source = None
     DamagedFile = common_tickets = container_entries = identify_update = load_expected = None
     load_keys = merge_space = merge_update_romfs = nca_ctr_key = nca_inventory = program_nca = None
     TOOLS_IMPORT_ERROR = exc
@@ -192,13 +196,32 @@ def raise_if_damaged(error, name, path):
         raise InstallError('check.input_damaged', input=name, path=str(path), detail=str(error)) from None
 
 
-def romfs_verified(romfs, expected):
-    """Whether romfs/index.json records the expected size and hash and romfs.bin still has that size."""
+def romfs_mode(ctx):
+    """Where the game reads its RomFS from: 'image' (romfs.bin, the merged copy in the install folder) or 'dumps'
+    (romfs-map.bin, which reads it from the player's base game and update files; tools/romfs_source.py). --romfs-source
+    chooses, else the install keeps what it recorded."""
+    chosen = getattr(getattr(ctx, 'options', None), 'romfs_source', None)
+    return chosen or ctx.state.get('romfs_source') or 'image'
+
+
+def romfs_file(romfs, mode):
+    """The file of romfs/ the game opens: romfs.bin, or romfs-map.bin."""
+    return romfs / ('romfs.bin' if mode == 'image' else romfs_source.MAP_NAME)
+
+
+def romfs_verified(romfs, expected, mode='image'):
+    """Whether romfs/index.json records the expected size and hash for this mode and its files are still there: romfs.bin
+    of that size, or romfs-map.bin and the dump files it names, each of its recorded size."""
     try:
         report = json.loads((romfs / 'index.json').read_text(encoding='utf-8'))
-        return (report.get('romfs_size') == expected['romfs']['size']
-                and report.get('romfs_sha256') == expected['romfs']['sha256']
-                and (romfs / 'romfs.bin').stat().st_size == expected['romfs']['size'])
+        if (report.get('romfs_size') != expected['romfs']['size']
+                or report.get('romfs_sha256') != expected['romfs']['sha256']
+                or report.get('source', 'image') != mode):
+            return False
+        if mode == 'image':
+            return (romfs / 'romfs.bin').stat().st_size == expected['romfs']['size']
+        size, sources, _ = romfs_source.read_map(romfs / romfs_source.MAP_NAME)
+        return size == expected['romfs']['size'] and all(Path(s['path']).stat().st_size == s['size'] for s in sources)
     except (OSError, ValueError):
         return False
 
@@ -446,9 +469,10 @@ class Check(Step):
 
     def space(self, ctx, ncas):
         dest_need = temp_need = 0
-        if ctx.will_run('extract'):
+        if ctx.will_run('extract') and romfs_mode(ctx) == 'image':
             # the update is identified after this estimate: the larger RomFS of the supported ones, plus the two
-            # Program NCAs the update merge copies into the install folder (about 10.5 GB for 1.0.1)
+            # Program NCAs the update merge copies into the install folder (about 10.5 GB for 1.0.1). Reading the RomFS
+            # from the dump files needs neither: romfs-map.bin is a few kilobytes.
             versions = load_expected()
             dest_need += max(versions[v]['romfs']['size'] for v in SUPPORTED) + ncas
             romfs = ctx.dest / 'romfs' / 'romfs.bin'
@@ -545,8 +569,10 @@ class Extract(Step):
     id = 'extract'
 
     def key(self, ctx):
-        # The output is whatever matches the expected hashes, whichever files and tools produced it.
-        return fingerprint('extract-1', ctx.layout.expected(game_version(ctx)))
+        # The output is whatever matches the expected hashes, whichever files and tools produced it, in the RomFS form
+        # chosen (an image install keeps the key it always had).
+        dumps = ['romfs-dumps'] if romfs_mode(ctx) == 'dumps' else []
+        return fingerprint('extract-1', ctx.layout.expected(game_version(ctx)), *dumps)
 
     def current(self, ctx, record):
         # Another base game or update file than the recorded one extracts again; the check then identifies it.
@@ -557,18 +583,24 @@ class Extract(Step):
                 if (st.st_size, st.st_mtime_ns) != (known.get('size'), known.get('mtime_ns')) \
                         and file_sha256(Path(path)) != known.get('sha256'):
                     return False
-        expected = expected_game(ctx)
+        expected, mode = expected_game(ctx), romfs_mode(ctx)
         romfs = ctx.dest / 'romfs'
-        if not extract.exefs_ok(ctx.dest / 'exefs', expected)[0] or not romfs_verified(romfs, expected):
+        if not extract.exefs_ok(ctx.dest / 'exefs', expected)[0] or not romfs_verified(romfs, expected, mode):
             return False
-        st = (romfs / 'romfs.bin').stat()
+        st = romfs_file(romfs, mode).stat()
         return st.st_size == record.get('romfs_size') and st.st_mtime_ns == record.get('romfs_mtime_ns')
 
     def verify(self, ctx, record):
-        image = ctx.dest / 'romfs' / 'romfs.bin'
         rep = ctx.reporter
-        digest = file_sha256(image, lambda d, t: rep.progress('check', 'verify_romfs', d, t, 'bytes'))
-        return digest == expected_game(ctx)['romfs']['sha256']
+        progress = lambda d, t: rep.progress('check', 'verify_romfs', d, t, 'bytes')   # noqa: E731
+        romfs, expected = ctx.dest / 'romfs', expected_game(ctx)
+        if romfs_mode(ctx) == 'image':
+            return file_sha256(romfs / 'romfs.bin', progress) == expected['romfs']['sha256']
+        try:
+            with romfs_source.MappedImage(romfs / romfs_source.MAP_NAME) as image:
+                return romfs_source.hash_image(image, image.size, progress) == expected['romfs']['sha256']
+        except (OSError, ValueError):
+            return False
 
     def run(self, ctx):
         o, dest, rep = ctx.options, ctx.dest, ctx.reporter
@@ -610,10 +642,22 @@ class Extract(Step):
         if extract.sha256(dest / 'exefs' / 'main.npdm') != expected['exefs_sha256']['main.npdm']:
             rep.warning('warn.npdm_differs', version=game_version(ctx))
 
-        romfs = dest / 'romfs'
+        romfs, mode = dest / 'romfs', romfs_mode(ctx)
         if self.id in ctx.forced:
             remove(romfs)   # the full hash failed: index.json still claims the extraction's hash
-        if not romfs_verified(romfs, expected):
+        if not romfs_verified(romfs, expected, mode) and mode == 'dumps':
+            # No merged copy: the map of the update's BKTR section over both dump files, read once to check its hash.
+            remove(romfs)
+            remove(romfs.with_name(romfs.name + '.new'))
+            try:
+                romfs_source.extract_map(base, update, keys, romfs,
+                                         lambda d, t: rep.progress('extract', 'map', d, t, 'bytes'))
+            except DamagedFile as e:
+                raise InstallError('check.input_damaged', input='base' if e.path == base else 'update',
+                                   path=str(e.path), detail=e.detail) from None
+            except (OSError, ValueError) as e:
+                raise InstallError('extract.romfs_failed', detail=str(e)) from None
+        elif not romfs_verified(romfs, expected, mode):
             remove(romfs)
             rep.progress('extract', 'copy', force=True)
             watch = Watch(rep, 'extract')
@@ -647,7 +691,8 @@ class Extract(Step):
                                    sha256=report['romfs_sha256'][:16])
             rep.warning('warn.data_accepted', size=report['romfs_size'])
         (dest / 'profile').mkdir(exist_ok=True)
-        st = (romfs / 'romfs.bin').stat()
+        ctx.state['romfs_source'] = mode
+        st = romfs_file(romfs, mode).stat()
         return {'romfs_size': st.st_size, 'romfs_mtime_ns': st.st_mtime_ns}
 
 
@@ -964,7 +1009,7 @@ class Cleanup(Step):
         # the objects and the logs live in build-cache/.
         for name in ('check', 'shared-fonts', 'expected-install.json'):
             remove(ctx.temp / name)
-        romfs_problem(dest / 'romfs', expected_game(ctx))
+        romfs_problem(dest / 'romfs', expected_game(ctx), romfs_mode(ctx))
         write_rebuild_command(ctx)
         return {}
 
@@ -1020,14 +1065,14 @@ def finish_temp(ctx, log):
     remove(ctx.temp)
 
 
-def romfs_problem(romfs, expected):
-    """Raise cleanup.romfs_unreadable unless romfs/ still holds the verified image. The game opens romfs.bin at start;
-    an install whose romfs/ went empty and unreadable after the extraction verified it (a folder Windows was still
-    deleting, #107) reported success and the game stopped at its first file read."""
+def romfs_problem(romfs, expected, mode='image'):
+    """Raise cleanup.romfs_unreadable unless romfs/ still holds the verified image (or its map). The game opens romfs.bin
+    or romfs-map.bin at start; an install whose romfs/ went empty and unreadable after the extraction verified it (a
+    folder Windows was still deleting, #107) reported success and the game stopped at its first file read."""
     try:
-        ok = romfs_verified(romfs, expected)
+        ok = romfs_verified(romfs, expected, mode)
         if ok:
-            with open(romfs / 'romfs.bin', 'rb') as f:
+            with open(romfs_file(romfs, mode), 'rb') as f:
                 f.read(1)
     except (OSError, ValueError):
         ok = False

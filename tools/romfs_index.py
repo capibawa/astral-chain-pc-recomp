@@ -4,7 +4,8 @@ Adapted from MacNativeGames games/totk/scripts/prepare_romfs_backend.py @ b75be8
 MacNativeGames contributors).
 
 Input: <romfs>/index.json ({status, romfs_size, romfs_sha256, files: [{path, offset, size}]}) as tools/extract.py
-writes it, and <romfs>/romfs.bin, whose size must match. Output, both in the build directory (never in the repo):
+writes it, and <romfs>/romfs.bin (or romfs-map.bin, tools/romfs_source.py), whose image size must match. Output, both in
+the build directory (never in the repo):
 
     romfs-index.bin   ACRFS1 layout: header <8sQQ (magic, count, strings offset), count 24-byte rows <QQII (offset,
                       size, name offset, name length including the NUL), then the NUL-terminated names; rows sorted by
@@ -15,7 +16,7 @@ Both are rewritten only when their bytes change, so Ninja does not rebuild romfs
 
     .venv\\Scripts\\python tools\\romfs_index.py --romfs build\\extracted\\v101\\romfs --out build\\v101
 
-Standard library only.
+Standard library only for romfs.bin; romfs-map.bin needs tools/romfs_source.py (the cryptography package).
 """
 import argparse
 import hashlib
@@ -67,9 +68,15 @@ def write(romfs, out):
     manifest = json.loads((romfs / 'index.json').read_text(encoding='utf-8'))
     if manifest.get('status') != 'pass':
         sys.exit(f'romfs_index: {romfs / "index.json"} does not record a verified extraction')
-    image = romfs / 'romfs.bin'
-    if not image.is_file() or image.stat().st_size != manifest['romfs_size']:
-        sys.exit(f'romfs_index: {image} is missing or its size differs from index.json')
+    try:   # romfs.bin, or romfs-map.bin reading it from the dump files (tools/romfs_source.py)
+        import romfs_source
+        size = romfs_source.image_size(romfs)
+    except ImportError:   # romfs_source needs the cryptography package; romfs.bin alone does not
+        size = (romfs / 'romfs.bin').stat().st_size if (romfs / 'romfs.bin').is_file() else None
+    except ValueError as e:
+        sys.exit(f'romfs_index: {romfs / "romfs-map.bin"}: {e}')
+    if size != manifest['romfs_size']:
+        sys.exit(f'romfs_index: {romfs} has no romfs.bin or romfs-map.bin of the size index.json records')
     index = build_index(manifest)
     count = len(manifest['files'])
     write_if_changed(out / 'romfs-index.bin', index)

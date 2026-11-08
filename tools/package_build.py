@@ -69,7 +69,7 @@ def main():
     exefs = a.extracted.resolve() / 'exefs'
     romfs = a.extracted.resolve() / 'romfs' / 'romfs.bin'
     need = [exe, a.xlate, exefs, fonts, build / 'romfs-patches'] + [build / d for d in DLLS] + [build / 'romfs-index.bin']
-    if a.with_romfs:
+    if a.with_romfs and not romfs.with_name('romfs-map.bin').is_file():
         need.append(romfs)
     missing = [str(p) for p in need if not p.exists()]
     if missing:
@@ -101,6 +101,13 @@ def main():
     if not a.no_shader_cache and (build / 'shader-cache').is_dir():
         n += copy_tree(build / 'shader-cache', out / 'shader-cache')
     (out / 'profile').mkdir(exist_ok=True)
+    rom_map = romfs.with_name('romfs-map.bin')
+    if not romfs.is_file() and rom_map.is_file():
+        # The extraction reads the game data from the dump files: the map (a few kilobytes) names them and the keys file
+        # by absolute path, so the folder runs on this machine while they stay where they are.
+        copy(rom_map, out / 'romfs' / 'romfs-map.bin')
+        a.with_romfs = False
+        print('package_build: romfs-map.bin copied (the game data is read from the dump files it names)')
     if a.with_romfs:
         (out / 'romfs').mkdir(exist_ok=True)
         print('package_build: copying romfs.bin (16 GB) ...')

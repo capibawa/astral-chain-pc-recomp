@@ -18,7 +18,25 @@ folder to read: the game's own data carries everything.
    - their `prod.keys`;
    - the game language and the install folder.
 3. Waits for the setup, one time. The window shows each step and its progress.
-4. Plays `astralchain.exe` from the install folder. The installer and the source files can be deleted.
+4. Plays `astralchain.exe` from the install folder. The installer and the source files can be deleted, except with
+   **Read the game data from these files instead of copying it** (`--romfs-source dumps`, see below).
+
+### Reading the game data from the player's files
+
+By default the extract step writes the merged 1.0.1 RomFS into `romfs/romfs.bin` (about 10 GB, next to the player's
+own copy of the same data). With `--romfs-source dumps` (the window's checkbox) it writes `romfs/romfs-map.bin`
+instead: `tools/romfs_source.py` resolves the update's BKTR relocation and subsection tables once into about 360
+extents, each a range of the merged image that is one AES-CTR run in the base game or the update file. The map names
+both files and the keys file by path and holds no key material. At every start `runtime/romfs_source.c` opens them,
+derives the two keys from the keys file, checks each file's size, its NCA header hash and a hash of its first
+decrypted bytes, and from then on reads the image straight out of the two files, decrypting in place (AES-NI; the
+game's full-image SHA-256 runs at the disk's speed). The extract step reads the whole image through the map once and
+compares its SHA-256 with `tools/data/expected-v1.0.1.json`, as for `romfs.bin`. Nothing else changes: the RomFS index,
+the button-prompt archives and the shader census read the image through the same map.
+
+The choice is recorded in `astralchain-install.json` and kept by later runs; `--romfs-source image` goes back to the
+copy. Moving, replacing or deleting the base game, the update or the keys file stops the game at start with a message
+naming the file; running the setup again with the files at their new place fixes it.
 
 The install folder (`main.c` `portable_paths()` reads this layout; it stays portable):
 
@@ -26,7 +44,7 @@ The install folder (`main.c` `portable_paths()` reads this layout; it stays port
 <install folder>/
   astralchain.exe, SDL3.dll, libopus-0.dll, ac_xlate.exe
   astralchain.ini                       language; the other keys as commented defaults (astralchain.ini.example)
-  exefs/, romfs/                        extracted from the player's files
+  exefs/, romfs/                        extracted from the player's files (romfs/: romfs.bin, or romfs-map.bin)
   shader-cache/                         the translated shaders, packed into one shader-cache.pack
   shader-prepared.bin                   the variants prepared ahead of play (read at boot to warm the driver)
   profile/                              saves
@@ -59,6 +77,7 @@ again: it is rebuilt from the 1.0.1 update.
    the player decides.
 2. **Extract** the update's ExeFS into the install folder and merge its RomFS BKTR section with the base game's Program
    NCA through hactool, verifying every IVFC level, and compare the result with `tools/data/expected-v1.0.1.json`.
+   With `--romfs-source dumps` it writes `romfs/romfs-map.bin` instead and checks the image read through it.
 3. **Lift** the ExeFS to C (`recomp/gen.py`, `recomp/patches-v101.txt`) into `build-cache/gen/` in the install folder.
    The code cheats of the mods' cheat files and the mods' ExeFS patch files become patch sets first
    (`tools/exefs_patches.py`, status in `build-cache/exefs.status`); a file the tool refuses costs those patches, not

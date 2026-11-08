@@ -9,7 +9,8 @@ NVN control section and the code. The control section the game hands NVN is 0x88
 first part and the code starts inside that span, so the census reads 0x880 bytes from the object's control
 offset and the code separately from the object's code offset (the two overlap, as the game's own buffers do).
 
-Reads build/extracted/<version>/ (RomFS image plus index.json as tools/romfs_index.py reads them). Writes under
+Reads build/extracted/<version>/ (RomFS image, or the romfs-map.bin that reads it from the dump files, plus
+index.json as tools/romfs_index.py reads them). Writes under
 build/<version>/shaders/ only:
 
     code/<key>.code     translator input (graphics: SPH + instructions, compute: instructions)
@@ -97,6 +98,17 @@ def dat_objects(data):
         yield magic, control, code, length, c1
 
 
+def open_image(romfs):
+    """The RomFS image: romfs.bin, else romfs-map.bin reading it from the dump files. tools/romfs_source.py (and its
+    cryptography package) is imported only for the map, so a romfs.bin build runs without that package."""
+    image = Path(romfs) / 'romfs.bin'
+    if image.is_file():
+        return image.open('rb')
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import romfs_source
+    return romfs_source.open_image(romfs)
+
+
 def inventory(romfs, exefs=None):
     """Every unique shader, keyed by the runtime code hash: {code_hash: dict(stage, control, code, length, c1, src)}."""
     index = json.loads((Path(romfs) / 'index.json').read_text(encoding='utf-8'))
@@ -104,7 +116,7 @@ def inventory(romfs, exefs=None):
         raise ValueError('RomFS has not passed integrity verification')
     entries = {r['path']: r for r in index['files']}
     shaders = {}
-    with (Path(romfs) / 'romfs.bin').open('rb') as stream:
+    with open_image(romfs) as stream:
         row = entries.get('root.pkz')
         if not row:
             return shaders
