@@ -121,10 +121,11 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   view-projection of the scene camera block (constant bank c4). `fxaa` switches the game's own FXAA pass.
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a
-  compute shader everywhere else (`vk_astc.c`, `AC_ASTC`), then re-encoded on the GPU: the alpha scan of the raw
-  storage (`tex_astc.c`, sound, the swizzle only permutes 16-byte sectors) picks BC1 for the provably opaque
-  textures — the same colour quality as BC3 at half its size — and BC3 for the rest (`AC_ASTC_BC=bc1`, the
-  default; `1` forces BC3 everywhere, `0` RGBA8).
+  compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). As in TotK Recomp, the decoded images are re-encoded to
+  BC3 on the GPU when the device has under 5 GiB of video memory and stay RGBA8 with more (`AC_ASTC_BC` unset,
+  `vk_astc.c` bc_default; `1` forces BC3, `0` RGBA8). `AC_ASTC_BC=bc1` (the Steam Deck profile) adds an alpha scan of
+  the raw storage (`tex_astc.c`, sound, the swizzle only permutes 16-byte sectors) that picks BC1 for the provably
+  opaque textures — the same colour quality as BC3 at half its size — and BC3 for the rest.
   --probe-astc holds both encoders and the scan to PSNR and exactness bounds. The CPU decoder (`tex_astc*.c`) is the fallback and the test oracle.
 - Draw state. A draw whose program, bound state and textures repeat reuses the previous draw's shaders and skips rebuilding its descriptor sets; descriptor sets are written through update templates (`vk_exec_draw.c`, `vk_pipeline.c`).
 - Allocation: Vulkan Memory Allocator. Debugging: Vulkan validation layers, per-pass frame dumps (`AC_DUMP`, `vk_dump.c`) and a flight recorder (`AC_FLIGHT`). RenderDoc cannot capture, because it hides `VK_EXT_external_memory_host` from the application.

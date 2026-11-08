@@ -55,11 +55,12 @@
 # ASTC texture decoding: native (the GPU's own ASTC support), gpu (a compute shader), cpu, or auto (native when the GPU
 # has it, gpu otherwise).
 # astc = auto
-# With the GPU decoder: re-encode the decoded ASTC textures to BC1 when the alpha scan proves them opaque (the
-# colour quality is the same as BC3, half the size) and to BC3 otherwise — together a quarter to an eighth of the
-# video memory, at the cost of BC's slightly blockier results (normal maps lose some precision). 1 forces BC3 for
-# every texture (the old behaviour), 0 keeps the decoded RGBA8 images.
-# astc_bc = bc1
+# With the GPU decoder, how the decoded ASTC textures are kept in video memory: 0 as decoded RGBA8 (the best quality),
+# 1 re-encoded to BC3 (a quarter of the memory, at the cost of BC's slightly blockier results; normal maps lose some
+# precision), bc1 to BC1 when an alpha scan proves the texture opaque and BC3 otherwise (an eighth to a quarter; the
+# same quality as BC3, but each new texture is scanned, which can add hitches while areas load). Empty: 1 with under
+# 5 GiB of video memory, 0 with more.
+# astc_bc =
 # Live texture images kept in video memory, in MiB; past it the least recently used are dropped and uploaded again when
 # the game binds them. Empty or 0: an eighth of the device budget, at least 512 MiB and at most 2 GiB; -1: no budget.
 # tex_cache_mb =
@@ -112,7 +113,7 @@
 [display]
 # Device profile: auto (the Steam Deck when this is one), desktop or deck. On a Steam Deck the keys this file does not
 # set default to fullscreen = 1, window_size = 1280x800, output_res = 1280x800, render_scale = game, vk_present = fifo,
-# fps = 30, astc_bc = 1, tex_cache_mb = 512, tex_vram_pressure = 70, aniso = game, shadow_res = 512, shadow_scale = 1,
+# fps = 30, astc_bc = bc1, tex_cache_mb = 512, tex_vram_pressure = 70, aniso = game, shadow_res = 512, shadow_scale = 1,
 # shadow_range = 100, contact_shadows = 0, pcss = 0. Read at start.
 # device_profile = auto
 # Presentation mode: mailbox (default when the driver offers it, vsync otherwise), fifo (vsync) or immediate.

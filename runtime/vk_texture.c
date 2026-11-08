@@ -405,7 +405,7 @@ static Tex *create_tex(const tex_t *t, const TexKey *k, int defer_init) {
     }
     nvn_texlayout L;
     nvn_tex_layout(d, &L);
-    // AC_ASTC_BC=bc1 (the default): the alpha scan of the raw storage picks this texture's recompression
+    // AC_ASTC_BC=bc1 (a choice; vk_astc.c bc_default): the alpha scan of the raw storage picks this texture's recompression
     // before the image exists. A provably opaque one — every 16-byte unit of the storage decodes alpha 255,
     // astc_storage_alpha_possible (tex_astc.c) — takes BC1 at half of BC3's size with the same colour
     // quality (the BC3 colour block is a BC1 block); the rest keep BC3. 3D targets stay BC3: the scan, like
