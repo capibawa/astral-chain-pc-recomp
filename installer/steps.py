@@ -39,14 +39,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'tools'))
 try:
     import extract  # noqa: E402
     from extract import (DamagedFile, common_tickets, container_entries, identify_update, load_expected,  # noqa: E402
-                         load_keys, merge_space, merge_update_romfs, nca_ctr_key, nca_inventory, program_nca)
+                         game_records, load_keys, merge_space, merge_update_romfs, nca_ctr_key, program_nca)
     TOOLS_IMPORT_ERROR = None
 except ImportError as exc:
     # A release folder whose tools/ is missing or partly copied: the check step names the missing files, so the setup
     # reports check.release_incomplete instead of stopping on an import before it reaches any step.
     extract = None
     DamagedFile = common_tickets = container_entries = identify_update = load_expected = None
-    load_keys = merge_space = merge_update_romfs = nca_ctr_key = nca_inventory = program_nca = None
+    game_records = load_keys = merge_space = merge_update_romfs = nca_ctr_key = program_nca = None
     TOOLS_IMPORT_ERROR = exc
 
 GiB = 1 << 30
@@ -420,7 +420,7 @@ class Check(Step):
             raise_if_damaged(e, name, path)
             raise InstallError('check.file_unreadable', input=name, detail=str(e)) from None
         try:
-            records = nca_inventory(f, entries, keys)
+            records = game_records(f, kind, entries, keys)
         except ValueError as e:
             if 'NCA3' in str(e):
                 raise InstallError('check.keys_wrong', input=name) from None

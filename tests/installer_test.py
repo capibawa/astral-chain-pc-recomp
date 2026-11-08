@@ -1,11 +1,13 @@
 """installer/ bookkeeping with fake steps: fresh install, resume after a failure or cancel, transient steps, update
-with a newer release, astralchain.ini and the event stream. No game files, no tools; stdlib only.
+with a newer release, astralchain.ini and the event stream, and the game-file container reader on synthetic images. No
+game files, no tools; stdlib only, plus tools/extract.py (cryptography) for the container tests.
 
 Run: python tests/installer_test.py
 """
 import io
 import json
 import re
+import struct
 import sys
 import tempfile
 import unittest
@@ -17,6 +19,9 @@ sys.path.insert(0, str(ROOT))
 from installer import ini, runner, state, steps  # noqa: E402
 from installer.events import Reporter  # noqa: E402
 from installer.layout import Layout  # noqa: E402
+
+extract = steps.extract   # tools/extract.py as the installer imports it (None without the cryptography package)
+needs_extract = unittest.skipIf(extract is None, 'tools/extract.py needs the cryptography package')
 
 
 class Fake(runner.Step):
@@ -411,6 +416,58 @@ class BaseGameCheckTest(unittest.TestCase):
     def test_update_slot_names_a_combined_package(self):
         records = [self.nca(0, self.BASE), self.nca(1, self.BASE), self.nca(1, self.UPDATE)]
         self.assertEqual(steps.update_misuse(records), 'check.update_combined')
+
+    @staticmethod
+    def program(bktr):
+        """A Program NCA header with one section; bktr: that section is a patch RomFS (encryption type 4)."""
+        hdr = bytearray(0xc00)
+        struct.pack_into('<II', hdr, 0x240, 6, 8)
+        hdr[0x400 + 4] = 4 if bktr else 3
+        return {'name': 'p.nca', 'nca_offset': 0, 'size': 0x1000, 'content_type': 0, 'title_id': BaseGameCheckTest.BASE}, \
+            bytes(hdr)
+
+    @needs_extract
+    def test_card_with_a_bundled_update_keeps_the_base_game(self):
+        # Game cards often carry the then-current update next to the base game in their secure partition.
+        records = [self.program(False), self.nca(1, self.BASE), self.program(True), self.nca(1, self.UPDATE),
+                   self.nca(2, self.BASE), self.nca(3, self.BASE)]
+        kept = extract.card_base(records)
+        self.assertIsNone(steps.base_misuse(kept))
+        self.assertFalse(extract.is_patch(steps.program_nca(kept)[1]))
+
+
+def hfs0(items):
+    """An HFS0 table for [(name, size)] whose payloads follow it back to back."""
+    strings, offsets, pos = b'', [], 0
+    for name, _ in items:
+        offsets.append(len(strings))
+        strings += name.encode() + b'\0'
+    raw = b'HFS0' + struct.pack('<II', len(items), len(strings)) + bytes(4)
+    for (name, size), noff in zip(items, offsets):
+        raw += struct.pack('<QQII', pos, size, noff, 0x200) + bytes(40)
+        pos += size
+    return raw + strings
+
+
+@needs_extract
+class ContainerTest(unittest.TestCase):
+    def test_xci_lists_its_secure_partition(self):
+        secure = hfs0([('a.nca', 0x10), ('b.cnmt.nca', 0x20)])
+        secure_image = secure + bytes(0x30)
+        root = hfs0([('normal', 0x10), ('secure', len(secure_image))])
+        image = bytearray(0x200)
+        image[0x100:0x104] = b'HEAD'
+        struct.pack_into('<QQ', image, 0x130, 0x200, len(root))
+        image += root + bytes(0x10) + secure_image
+        kind, entries = extract.container_entries(io.BytesIO(bytes(image)), len(image))
+        self.assertEqual(kind, 'xci')
+        start = 0x200 + len(root) + 0x10 + len(secure)
+        self.assertEqual(entries, [('a.nca', start, 0x10), ('b.cnmt.nca', start + 0x10, 0x20)])
+
+    def test_other_files_are_refused(self):
+        image = bytes(0x400)
+        with self.assertRaises(ValueError):
+            extract.container_entries(io.BytesIO(image), len(image))
 
 
 class EventsTest(unittest.TestCase):

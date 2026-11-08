@@ -14,8 +14,8 @@ Steps, each skipped when its verified output already exists:
 3. RomFS of the update, merged from the base Program NCA and the update's BKTR section by hactool, verified
    through all six IVFC levels, with its file index.
 
-The base NSP is expected to be ticketless or key-area encrypted (the usual game-card dump); the update NSP
-carries a common ticket. A file whose data fails its hashes or ends early stops the extraction.
+The base game is an XCI or an NSP, ticketless or key-area encrypted (the usual game-card dump) or with a common
+ticket; the update NSP carries a common ticket. A file whose data fails its hashes or ends early stops the extraction.
 
 --base, --update, --keys and --work name the files and the output directory instead of the config (the
 installer imports the functions instead). Key values are read by the tools from the keys file and never
@@ -94,9 +94,22 @@ def partition_entries(f, offset, bound, magic=b'PFS0', stride=24):
 
 
 def container_entries(f, size):
+    """('nsp' or 'xci', [(name, offset, size)] of the files the game's NCAs are in).
+
+    An NSP is one PFS0. An XCI (game-card image) has its header magic at 0x100 and the offset of its root HFS0 at
+    0x130; the root lists the card's partitions and the game's NCAs are in the one named 'secure'. Card NCAs are
+    key-area encrypted, so an XCI needs no ticket. A trimmed XCI ends after its last partition, so the root is bounded
+    by the file size rather than by the card size in the header.
+    """
     if read_at(f, 0, 4) == b'PFS0':
         return 'nsp', partition_entries(f, 0, size)
-    raise ValueError('Expected an NSP (PFS0) game file; XCI is not supported')
+    require(size >= 0x138 and read_at(f, 0x100, 4) == b'HEAD', 'Expected an XCI or NSP (PFS0) game file')
+    root = struct.unpack('<Q', read_at(f, 0x130, 8))[0]
+    require(0x200 <= root < size, 'XCI root partition out of bounds')
+    partitions = partition_entries(f, root, size - root, b'HFS0', 64)
+    secure = [e for e in partitions if e[0] == 'secure']
+    require(len(secure) == 1, 'Expected one XCI secure partition')
+    return 'xci', partition_entries(f, secure[0][1], secure[0][2], b'HFS0', 64)
 
 
 def load_keys(path):
@@ -174,6 +187,29 @@ def nca_inventory(f, entries, keys):
     return records
 
 
+def is_patch(hdr):
+    """Whether this NCA has a BKTR (patch RomFS) section: an update's Program NCA, which needs the base to read."""
+    return any(struct.unpack_from('<II', hdr, 0x240 + i * 16)[0] and hdr[0x400 + i * 512 + 4] == 4 for i in range(4))
+
+
+def card_base(records):
+    """The records of an XCI without the update the game card may bundle in its secure partition.
+
+    Game cards often carry the update that was current when they were printed next to the base game. Its Program NCA
+    has a BKTR section and its Meta NCA carries the update's title id (the base id with bit 0x800 set); its Control
+    and LegalInfo NCAs are never read. The base game is what stays.
+    """
+    return [(r, h) for r, h in records
+            if not (r['content_type'] == 0 and is_patch(h))
+            and not (r['content_type'] == 1 and int(r['title_id'], 16) & 0x800)]
+
+
+def game_records(f, kind, entries, keys):
+    """nca_inventory of a container; an XCI leaves out the update its card bundles (card_base)."""
+    records = nca_inventory(f, entries, keys)
+    return card_base(records) if kind == 'xci' else records
+
+
 def program_nca(records, update=False):
     """The one Program NCA of Astral Chain; update: the file must be the update NSP.
 
@@ -215,7 +251,7 @@ def extract_exefs(game, keys, output, update=False):
     with game.open('rb') as f:
         kind, entries = container_entries(f, game.stat().st_size)
         tickets = common_tickets(f, entries)
-        record, hdr = program_nca(nca_inventory(f, entries, keys), update=update)
+        record, hdr = program_nca(game_records(f, kind, entries, keys), update=update)
         ctr_key = nca_ctr_key(hdr, keys, tickets)
         for i in range(4):
             start, end = struct.unpack_from('<II', hdr, 0x240 + 16 * i)
@@ -257,7 +293,7 @@ def extract_exefs(game, keys, output, update=False):
             manifest = {'source': str(game.resolve()), 'source_size': game.stat().st_size,
                         'source_mtime_ns': game.stat().st_mtime_ns, 'container': kind,
                         'update': update,
-                        'nca_inventory': [r for r, _ in nca_inventory(f, entries, keys)], 'program': record,
+                        'nca_inventory': [r for r, _ in game_records(f, kind, entries, keys)], 'program': record,
                         'section_index': i,
                         'integrity': 'FS header, ExeFS hash table, and every ExeFS data block verified; RSA signatures not checked',
                         'files': extracted}
@@ -272,8 +308,8 @@ def extract_romfs(game, keys, manifest, output):
     keys = load_keys(keys)
     record = manifest['program']
     with game.open('rb') as f:
-        _, entries = container_entries(f, game.stat().st_size)
-        actual, hdr = program_nca(nca_inventory(f, entries, keys))
+        kind, entries = container_entries(f, game.stat().st_size)
+        actual, hdr = program_nca(game_records(f, kind, entries, keys))
         require(actual['name'] == record['name'] and actual['size'] == record['size'] and
                 actual['nca_offset'] == record['nca_offset'], 'Source Program NCA changed; extract ExeFS again')
         ctr_key = nca_ctr_key(hdr, keys, common_tickets(f, entries))
@@ -461,7 +497,7 @@ def program_ncas(base, update, keys_path):
             for rights, key in common_tickets(f, entries).items():
                 require(tickets.get(rights, key) == key, 'Conflicting common tickets')
                 tickets[rights] = key
-            record, header = program_nca(nca_inventory(f, entries, keys), update=is_update)
+            record, header = program_nca(game_records(f, kind, entries, keys), update=is_update)
             rights = header[0x230:0x240]
             require(rights == bytes(16) or rights in tickets, 'Missing common ticket')
             inputs.append((source, record, header))
@@ -500,7 +536,7 @@ def merge_update_romfs(base, update, keys_path, hactool, output, logs, expected_
     """Merge the base Program NCA with the update's BKTR section and write output/ (romfs.bin, index.json).
 
     Needs room for both Program NCAs and the merged image next to output: base and update are copied into
-    update-merge-* (hactool's Windows build cannot read the base NCA inside its NSP). phase(name) is called as each
+    update-merge-* (hactool's Windows build cannot read the base NCA inside its XCI or NSP). phase(name) is called as each
     part starts. Raises DamagedFile when one of the two files fails its hashes.
     """
     if output.exists():
@@ -622,7 +658,7 @@ def check_expected(display_version, manifest, romfs_report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--config', type=Path, default=ROOT / 'config.local.toml')
-    parser.add_argument('--base', type=Path, help='base game NSP (default: input.base of the config)')
+    parser.add_argument('--base', type=Path, help='base game XCI or NSP (default: input.base of the config)')
     parser.add_argument('--update', type=Path, help='update NSP, 1.0.1 (default: input.update of the config)')
     parser.add_argument('--keys', type=Path, help='prod.keys (default: input.keys of the config)')
     parser.add_argument('--hactool', type=Path,
