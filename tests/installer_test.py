@@ -1,5 +1,6 @@
 """installer/ bookkeeping with fake steps: fresh install, resume after a failure or cancel, transient steps, update
-with a newer release, astralchain.ini and the event stream. No game files, no tools; stdlib only.
+with a newer release, astralchain.ini and the event stream, and how the merge reads hactool's output. No game files,
+no tools; stdlib only, plus tools/extract.py (cryptography) for the hactool log tests.
 
 Run: python tests/installer_test.py
 """
@@ -17,6 +18,9 @@ sys.path.insert(0, str(ROOT))
 from installer import ini, runner, state, steps  # noqa: E402
 from installer.events import Reporter  # noqa: E402
 from installer.layout import Layout  # noqa: E402
+
+extract = steps.extract   # tools/extract.py as the installer imports it (None without the cryptography package)
+needs_extract = unittest.skipIf(extract is None, 'tools/extract.py needs the cryptography package')
 
 
 class Fake(runner.Step):
@@ -411,6 +415,33 @@ class BaseGameCheckTest(unittest.TestCase):
     def test_update_slot_names_a_combined_package(self):
         records = [self.nca(0, self.BASE), self.nca(1, self.BASE), self.nca(1, self.UPDATE)]
         self.assertEqual(steps.update_misuse(records), 'check.update_combined')
+
+
+@needs_extract
+class HactoolLogTest(unittest.TestCase):
+    """The merge reads hactool's output: signature lines are not errors, hash and read failures are."""
+    # The shape of a merge log from a converted dump: all three RSA signatures fail, every hash level is good.
+    LOG = '\n'.join([
+        'Fixed-Key Index (GOOD):             0x0',
+        'Fixed-Key Signature (FAIL):         <hex removed>',
+        'NPDM Signature (GOOD):              <hex removed>',
+        'NPDM:',
+        '    ACID:',
+        '        Magic:                      ACID',
+        '        Signature Key (GOOD):       0',
+        '        Signature (FAIL):           <hex removed>',
+        '        Superblock Hash (GOOD):     <hex removed>',
+    ] + [f'        Level {i} (GOOD):' for i in range(6)] + ['Done!'])
+
+    def test_failed_signatures_are_not_errors(self):
+        checked = extract.hactool_checked(self.LOG)
+        self.assertIsNone(extract.HACTOOL_ERROR.search(checked))
+        self.assertIsNone(extract.HACTOOL_HASH_FAIL.search(checked))
+
+    def test_failed_hash_levels_are_errors(self):
+        checked = extract.hactool_checked(self.LOG.replace('Level 3 (GOOD)', 'Level 3 (FAIL)'))
+        self.assertIsNotNone(extract.HACTOOL_HASH_FAIL.search(checked))
+        self.assertIsNotNone(extract.HACTOOL_ERROR.search(checked))
 
 
 class EventsTest(unittest.TestCase):

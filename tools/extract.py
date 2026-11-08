@@ -405,8 +405,17 @@ class DamagedFile(ValueError):
                          f'(or dump it again) and retry.')
 
 
-# hactool verifies two signatures with Nintendo public keys it does not ship; these lines always read (FAIL).
-UNSIGNED = re.compile(r'\s*(?:Fixed-Key Signature|NPDM Signature) \(FAIL\)')
+# hactool checks three RSA signatures: the NCA header's fixed-key signature, the NPDM signature and the ACID
+# signature inside main.npdm (printed indented as `Signature`, under ACID). Any of them can read (FAIL) on a good dump:
+# hactool lacks some of Nintendo's public keys, and repacked or converted dumps carry another NCA header or main.npdm
+# (the ExeFS check tolerates that main.npdm, see VERSION_FILES). The data itself is verified by the IVFC hash levels
+# and the merged image's SHA-256, so these lines are not errors.
+UNSIGNED = re.compile(r'\s*(?:Fixed-Key Signature|NPDM Signature|Signature) \(FAIL\)')
+
+
+def hactool_checked(log):
+    """hactool's output without the signature lines UNSIGNED names: what the error and hash checks read."""
+    return '\n'.join(line for line in log.splitlines() if not UNSIGNED.match(line))
 HACTOOL_ERROR = re.compile(r'\(FAIL\)|\(INVALID\)|Failed to|Error:')
 HACTOOL_HASH_FAIL = re.compile(r'^\s*(?:Level \d|Superblock Hash|Hash Table) \(FAIL\)', re.M)
 LONG_HEX = re.compile(r'[0-9A-Fa-f]{32,}')
@@ -487,7 +496,7 @@ def damaged_merge_input(hactool, hactool_keys, environment, base, update, base_n
                              str(base_nca)], environment)
     with log_path.open('a', encoding='utf-8') as f:
         f.write(f'\n---- base Program NCA alone (exit code {code}) ----\n{log}')
-    checked = '\n'.join(line for line in log.splitlines() if not UNSIGNED.match(line))
+    checked = hactool_checked(log)
     if HACTOOL_HASH_FAIL.search(checked):
         return DamagedFile(base, f'its game data fails the hash check; see {log_path}')
     if all(re.search(rf'Level {i} \(GOOD\)', log) for i in range(6)):
@@ -537,7 +546,7 @@ def merge_update_romfs(base, update, keys_path, hactool, output, logs, expected_
                    f'--basenca={base_nca}', f'--section{sections[0]}={result / "romfs.bin"}', str(update_nca)]
         code, log = run_hactool(command, environment)
         log_path.write_text(log, encoding='utf-8')
-        checked = '\n'.join(line for line in log.splitlines() if not UNSIGNED.match(line))
+        checked = hactool_checked(log)
         if HACTOOL_HASH_FAIL.search(checked):
             phase('diagnose')
             raise damaged_merge_input(hactool, hactool_keys, environment, base, update, base_nca, log_path)
