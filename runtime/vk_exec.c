@@ -100,7 +100,7 @@ WEAK void vk_exec_op_xfer(VkExec *ex, uint32_t op, const void *payload) {
     rt_fatal("vk: op %s is not replayed yet", nvn_op_name(op));
 }
 
-enum { W_UNRENDERABLE, W_LEVEL, W_LAYER, W_VIEW_FORMAT, W_BLOCK_VIEW, W_BLOCK_LAYERS, W_CLEAR_TARGET, W_CLEAR_MASK, W_STENCIL_MASK, W_COUNT };
+enum { W_UNRENDERABLE, W_LEVEL, W_LAYER, W_VIEW_FORMAT, W_BLOCK_VIEW, W_BLOCK_LAYERS, W_CLEAR_TARGET, W_CLEAR_MASK, W_STENCIL_MASK, W_MIXED_SCALE, W_COUNT };
 
 static void warn_once(int key, const char *fmt, ...) {
     static volatile int32_t seen[W_COUNT];
@@ -387,7 +387,7 @@ static void resolve_rt(VkExec *ex) {
     const p_set_rt *r = &ex->rt;
     int n = r->n < 0 ? 0 : r->n > 8 ? 8 : r->n;
     uint32_t w = UINT32_MAX, h = UINT32_MAX, layers = UINT32_MAX, samples = 0;
-    float scale = 1.0f;
+    float scale = 1.0f, low = 0.0f;   // the largest and the smallest attachment scale (0: none yet)
     for (int i = 0; i < 8; i++) {
         VkExecTarget *t = &ex->color[i];
         resolve_target(i < n ? r->color[i] : NULL, &r->cview[i], i < n && r->has_cview[i], 0, t);
@@ -399,6 +399,7 @@ static void resolve_rt(VkExec *ex) {
         if (t->layers < layers) layers = t->layers;
         if (!samples) samples = t->samples;
         if (t->scale > scale) scale = t->scale;
+        if (!low || t->scale < low) low = t->scale;
     }
     VkExecTarget *d = &ex->depth;
     resolve_target(r->depth, &r->dview, r->has_dview, 1, d);
@@ -411,7 +412,13 @@ static void resolve_rt(VkExec *ex) {
         if (d->layers < layers) layers = d->layers;
         if (!samples) samples = d->samples;
         if (d->scale > scale) scale = d->scale;
+        if (!low || d->scale < low) low = d->scale;
     }
+    // The pass takes the largest scale; an attachment AC_SSAA or AC_SHADOW_SCALE left smaller (a mirrored, linear or
+    // multisampled one next to an enlarged one) would get draws past its edge.
+    if (low > 0 && scale - low > 0.01f)
+        warn_once(W_MIXED_SCALE, "render pass mixes attachment scales %.3g and %.3g (%ux%u): the larger is used", low,
+                  scale, w, h);
     ex->pass_noatt = w == UINT32_MAX;
     if (ex->pass_noatt) {
         vk_exec_noatt_dims(ex, &w, &h);

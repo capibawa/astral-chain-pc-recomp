@@ -337,8 +337,11 @@ static int shadow_scale_of(const nvn_texdesc *d, const TexVkFormat *f, uint32_t 
 }
 
 // AC_SSAA (off, 1440p or 2160p): emulator-style resolution scaling to a screen height. The game renders at its own size
-// (res_game_size: 1920x1080 with the res1080 set); a texture it uses as a render target or as the window is made
-// 1440 or 2160 divided by the game's height larger on each side, so 1080p becomes exactly 2560x1440 or 3840x2160. The
+// (res_game_size: 1920x1080 with the res1080 set docked, 1280x720 in handheld); a texture it uses as a render target
+// is made 1440 or 2160 divided by that height larger on each side, so 1080p becomes exactly 2560x1440 or 3840x2160 and
+// handheld's 720p exactly 2x or 3x. The window textures take the same factor: they stay 1920x1080 in handheld, but
+// the game draws its 1280x720 frame into their corner and presents that crop, so 3x makes it 3840x2160 (a window
+// texture scaled to the screen height, 2x, gave a 2560x1440 picture of a 3x scene). The
 // setting names a screen size rather than a factor because the factor alone gave sizes Intel's Arc 140T driver cannot
 // take: 1888x1062 x 4/3 = 2517x1416 (and 2480x1395, 2832x1593...) lost the device in one plain draw on entering play,
 // the viewport's size being the trigger, while 2560x1440 and 3840x2160 played for hours. The replay multiplies the

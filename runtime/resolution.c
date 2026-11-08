@@ -37,6 +37,7 @@
 #include "cfg.h"
 #include "gfx.h"
 #include "host.h"
+#include "ov.h"
 
 #define BASE_W 1600
 #define BASE_H 900
@@ -268,8 +269,12 @@ static void game_res_pick(void) {
     if (s1080 >= 0 || s1062 >= 0) rt_log("resolution: the game renders %ux%u", g[0], g[1]);
 }
 
+// In handheld the game makes its scene targets 1280x720 whatever the sets say: main+0x40d5a0 picks the patched size
+// only in docked.
 void res_game_size(unsigned out[2]) {
-    if (rt_patch_enabled(rt_patch_set("res1080"))) {
+    if (ov_handheld()) {
+        out[0] = 1280, out[1] = 720;
+    } else if (rt_patch_enabled(rt_patch_set("res1080"))) {
         out[0] = 1920, out[1] = 1080;
     } else if (rt_patch_enabled(rt_patch_set("res1062"))) {
         out[0] = 1888, out[1] = 1062;
