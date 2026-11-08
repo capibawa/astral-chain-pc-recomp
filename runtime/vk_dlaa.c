@@ -25,6 +25,7 @@
 #include "vk.h"
 #include "vk_dlaa.h"
 #include "vk_exec.h"
+#include "vk_fsr3.h"
 #include "vk_rec.h"
 #include "dlaa_mv_spv.h"
 #include "dlaa_objmask_spv.h"
@@ -337,6 +338,7 @@ static struct {
     uint32_t gap;                // presents in a row without the DLAA point, up to the last one
     uint64_t why[4];             // history resets: scene size changed, no camera, scene target changed, gap
     int on;                      // the dlaa setting, read at each present (the menu switches it live)
+    int fsr3;                    // the frame's upscaler is AMD FSR 3 (vk_fsr3.c), not DLSS (use_fsr3)
     int preset, preset_dirty;    // the DLSS model features are created with (preset_value); a change pending
     unsigned cfg_seen;           // cfg_version when preset was read
     uint64_t last_eval_ns;       // plat_now_ns of the previous evaluation (FrameTimeDeltaInMsec)
@@ -345,7 +347,17 @@ static struct {
 const VkTexImage *vk_dlaa_swap_img;
 VkImageView vk_dlaa_swap_view;
 
-static int dl_active(void) { return N.available && !D.failed && D.on; }
+// AC_TEMPORAL_UPSCALER (live): dlss, fsr3, or auto (the default): DLSS where NGX is up (an RTX card with the DLSS model
+// next to the executable), FSR 3 everywhere else. Both run at the same point of the frame on the same inputs.
+static int use_fsr3(void) {
+    const char *v = cfg_value("AC_TEMPORAL_UPSCALER");
+    return !strcmp(v, "fsr3") || (strcmp(v, "dlss") && !N.available);
+}
+
+// The chosen upscaler can run: NGX up for DLSS, the FSR 3 host set up (vk_fsr3_ready) for FSR 3.
+static int backend_ok(void) { return use_fsr3() ? vk_fsr3_ready() : N.available; }
+
+static int dl_active(void) { return !D.failed && D.on && (D.fsr3 ? vk_fsr3_ready() : N.available); }
 
 // The scene set makes the scene smaller than the output (res_sizes; a mode change takes effect once the game rebuilt
 // its scene targets, resolution.c rt_res_rebuild_w8): DLSS scales instead of DLAA.
@@ -863,14 +875,16 @@ void vk_dlaa_draw(VkExec *ex) {
 // switch, which shifted that order). Jitter needs a frame DLSS ran on; a frame without the DLAA point stops it.
 // The sequence is as long as NVIDIA's DLSS guide asks for the upscaling ratio, 8 x (output / scene)^2 phases (18 in
 // Quality, 24 in Balanced, 32 in Performance), and 16 at least (DLAA).
+static uint32_t jitter_phases(uint32_t w, uint32_t ow) {
+    double r = w ? (double)ow / w : 1.0;
+    uint32_t phases = (uint32_t)ceil(8.0 * r * r - 1e-6);
+    return phases < 16 ? 16 : phases > 72 ? 72 : phases;
+}
+
 static void next_jitter(uint32_t w, uint32_t ow) {
     static int nj = -1;
     if (nj < 0) nj = !rt_knob("DLAA_JITTER", "1");   // AC_DLAA_JITTER=0: no jitter (test)
-    double r = w ? (double)ow / w : 1.0;
-    uint32_t phases = (uint32_t)ceil(8.0 * r * r - 1e-6);
-    if (phases < 16) phases = 16;
-    if (phases > 72) phases = 72;
-    uint32_t i = D.jframe++ % phases + 1;
+    uint32_t i = D.jframe++ % jitter_phases(w, ow) + 1;
     D.jx = halton(i, 2) - 0.5f, D.jy = halton(i, 3) - 0.5f;
     D.jit_ok = !D.hold && !nj;
 }
@@ -898,6 +912,28 @@ static void preset_check(void) {
         else rt_log("dlaa: DLSS presets per mode; the features are created again");
     }
     D.preset = p, D.preset_dirty = 1, D.reset = 1;
+}
+
+// The scene camera's near and far plane distance and vertical field of view, for FSR 3's depth to distance (vk_fsr3.c):
+// the projection (rows 4-7 of the camera block) taken back from the depth buffer's nearest and farthest value at the
+// centre of the view, as the depth buffer holds them (0..1, or -1..1 as z_ndc with NEAR_IS_MINUS_W). Without a camera,
+// a plausible one (0.1 to 1000 units, 60 degrees): FSR then only misjudges distances in its disocclusion test.
+static void camera_planes(float *near_z, float *far_z, float *fov_y) {
+    *near_z = 0.1f, *far_z = 1000.0f, *fov_y = 1.0471976f;
+    const float *pj = D.cam_addr ? (const float *)vk_usnap_bytes(D.cam_addr + 64, 64) : NULL;
+    double m[16], inv[16];
+    if (!pj) return;
+    for (int i = 0; i < 16; i++) m[i] = pj[i];
+    if (!isfinite(m[5]) || fabs(m[5]) < 1e-6 || !inv4(m, inv)) return;
+    double d[2], zn[2] = {nvn_depth_minus_w() ? -1.0 : 0.0, 1.0};
+    for (int k = 0; k < 2; k++) {   // the view-space point of ndc (0, 0, z): row 2 over row 3 of the inverse
+        double vz = inv[2 * 4 + 2] * zn[k] + inv[2 * 4 + 3], vw = inv[3 * 4 + 2] * zn[k] + inv[3 * 4 + 3];
+        d[k] = fabs(vw) > 1e-12 ? fabs(vz / vw) : 1e9;
+    }
+    if (!(d[0] > 0) || !isfinite(d[0])) return;
+    *near_z = (float)d[0];
+    *far_z = (float)(d[1] > d[0] && d[1] < 1e9 ? d[1] : d[0] * 1e6);   // an infinite projection: far enough
+    *fov_y = (float)(2.0 * atan(1.0 / fabs(m[5])));
 }
 
 // The quality setting DLSS is created with, from the scene's share of the output width.
@@ -929,7 +965,7 @@ static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *ds
     // where the camera did not move, which a cut test cannot see. Counted in presents, not time, so a slow frame (a
     // shader build, a hitch) that DLSS still ran on keeps its history.
     if (D.gap >= GAP_PRESENTS) D.reset = 1, D.why[3]++, e->obj_ok = 0;
-    if (!D.params && !NGX_OK(N.alloc_params(&D.params))) return dl_fail("parameter allocation", 0);
+    if (!D.fsr3 && !D.params && !NGX_OK(N.alloc_params(&D.params))) return dl_fail("parameter allocation", 0);
     NgxParam *p = D.params;
     VkImageView zv = vk_exec_target_view(z->img, z->format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, z->level,
                                          z->base_layer, 1, 0);
@@ -947,82 +983,92 @@ static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *ds
     }
     int timed = T.on > 0 && T.began && T.used[T.slot];   // mv_pass began this frame's slot and got to its end
     if (timed) times_mark(cb, T_DL0);
-    uint64_t c0 = timed ? kern_now_ns() : 0;
-    rec_drain();   // NGX records into the command buffer itself: the recorder thread must have made every call so far
-    if (timed) T.cpu_drain += kern_now_ns() - c0;
-    if (!e->feat) {
-        p_setu(p, "CreationNodeMask", 1);
-        p_setu(p, "VisibilityNodeMask", 1);
-        p_setu(p, "Width", w);
-        p_setu(p, "Height", h);
-        p_setu(p, "OutWidth", ow);
-        p_setu(p, "OutHeight", oh);
-        p_seti(p, "PerfQualityValue", perf_quality(w, ow));
-        // MVLowRes: motion vectors at the render size. In place (the light target): IsHDR | AutoExposure, linear scene
-        // light without an exposure texture. Scaled (the composite, tonemapped and graded, 0..1): neither, unless HDR
-        // output keeps highlights above 1 in it (vk_hdr.c).
-        int create = (1 << 1) | (!up || vk_hdr_wanted() ? (1 << 0) | (1 << 6) : 0);
-        p_seti(p, "DLSS.Feature.Create.Flags", create);
-        p_seti(p, "DLSS.Enable.Output.Subrects", 0);
-        // The model per mode (NVSDK_NGX_DLSS_Hint_Render_Preset: 1 A ... 11 K, 12 L, 13 M), as NVIDIA recommends for
-        // DLSS 4.5 (310.x): K (transformer) for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance.
-        // M and L cost more on cards without FP8 (RTX 20/30). dlss_preset (D.preset, preset_check) takes one model for
-        // every mode instead. An older nvngx_dlss.dll without a model takes its own default.
-        int pk = D.preset ? D.preset : 11, pm = D.preset ? D.preset : 13, pl = D.preset ? D.preset : 12;
-        p_setu(p, "DLSS.Hint.Render.Preset.DLAA", (unsigned)pk);
-        p_setu(p, "DLSS.Hint.Render.Preset.UltraQuality", (unsigned)pk);
-        p_setu(p, "DLSS.Hint.Render.Preset.Quality", (unsigned)pk);
-        p_setu(p, "DLSS.Hint.Render.Preset.Balanced", (unsigned)pk);
-        p_setu(p, "DLSS.Hint.Render.Preset.Performance", (unsigned)pm);
-        p_setu(p, "DLSS.Hint.Render.Preset.UltraPerformance", (unsigned)pl);
-        NgxResult r = N.create(cb, NGX_FEATURE_SUPERSAMPLING, p, &e->feat);
-        if (!NGX_OK(r) || !e->feat) return dl_fail("DLSS feature creation", r);
-        D.reset = 1;
-        int q = perf_quality(w, ow), pr = q == 0 ? pm : q == 3 ? pl : pk;
-        rt_log("dlaa: DLSS feature created at %ux%u -> %ux%u, quality value %d, preset %c (scene format %d, depth format "
-               "%d)", w, h, ow, oh, q, 'A' + pr - 1, (int)t->format, (int)z->format);
-    }
+    // The time since the previous evaluation, which DLSS and FSR 3 weigh their history by; 60 fps before the first and
+    // after a gap (a pause, a load), where no history carries over anyway.
+    uint64_t now = plat_now_ns();
+    double dt = D.last_eval_ns ? (now - D.last_eval_ns) / 1e6 : 0;
+    D.last_eval_ns = now;
+    float dt_ms = dt > 0 && dt < 100 ? (float)dt : 16.67f;
     // Astral Chain draws its light target into two images in turn: only one seen in neither of the last two frames
     // starts a new history
     if (t->image != D.last_color[0] && t->image != D.last_color[1]) D.reset = 1, D.why[2]++;
     if (t->image != D.last_color[0]) D.last_color[1] = D.last_color[0], D.last_color[0] = t->image;
     VkImageView cv = vk_exec_target_view(t->img, t->format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, t->level,
                                          t->base_layer, 1, 0);
-    NgxResourceVK rc = res_image(cv, t->image, t->format, w, h, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-    NgxResourceVK ro = res_image(e->out_view, e->out, VK_FORMAT_R16G16B16A16_SFLOAT, ow, oh, VK_IMAGE_ASPECT_COLOR_BIT, 1);
-    NgxResourceVK rz = res_image(zv, z->image, z->format, w, h, VK_IMAGE_ASPECT_DEPTH_BIT, 0);
-    NgxResourceVK rm = res_image(e->mv_view, e->mv, VK_FORMAT_R16G16_SFLOAT, w, h, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-    p_setp(p, "Color", &rc);
-    p_setp(p, "Output", &ro);
-    p_setp(p, "Depth", &rz);
-    p_setp(p, "MotionVectors", &rm);
-    p_setf(p, "Jitter.Offset.X", jx);
-    p_setf(p, "Jitter.Offset.Y", jy);
-    p_setf(p, "Sharpness", 0.0f);
-    p_seti(p, "Reset", D.reset);
-    // the characters' bias mask when mv_pass made one this frame; the parameter object is reused, so it is cleared
-    // explicitly otherwise
-    NgxResourceVK rk = res_image(e->x_view[2], e->x[2], VK_FORMAT_R8_UNORM, w, h, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-    p_setp(p, "DLSS.Input.Bias.Current.Color.Mask", masked ? (void *)&rk : NULL);
-    p_setu(p, "DLSS.Input.Bias.Current.Color.Subrect.Base.X", 0);
-    p_setu(p, "DLSS.Input.Bias.Current.Color.Subrect.Base.Y", 0);
-    p_setf(p, "MV.Scale.X", 1.0f);
-    p_setf(p, "MV.Scale.Y", 1.0f);
-    p_setu(p, "DLSS.Render.Subrect.Dimensions.Width", w);
-    p_setu(p, "DLSS.Render.Subrect.Dimensions.Height", h);
-    p_setf(p, "DLSS.Pre.Exposure", 1.0f);
-    p_setf(p, "DLSS.Exposure.Scale", 1.0f);
-    // The time since the previous evaluation, which DLSS weighs its history by; 60 fps before the first and after a
-    // gap (a pause, a load), where no history carries over anyway.
-    uint64_t now = plat_now_ns();
-    double dt = D.last_eval_ns ? (now - D.last_eval_ns) / 1e6 : 0;
-    D.last_eval_ns = now;
-    p_setf(p, "FrameTimeDeltaInMsec", dt > 0 && dt < 100 ? (float)dt : 16.67f);
-    c0 = timed ? kern_now_ns() : 0;
-    NgxResult r = N.evaluate(cb, e->feat, p, NULL);
-    if (timed) T.cpu_ngx += kern_now_ns() - c0;
-    if (!NGX_OK(r)) return dl_fail("DLSS evaluation", r);
-    if (timed) times_mark(cb, T_DL1);   // through the recorder, after NGX's own commands
+    if (D.fsr3) {   // AMD FSR 3 (vk_fsr3.c) on the same inputs, recorded through the recorder like the replay's commands
+        Fsr3Eval fe = {.color = cv, .depth = zv, .mv = e->mv_view, .out = e->out_view, .w = w, .h = h, .ow = ow,
+                       .oh = oh, .jx = jx, .jy = jy, .phases = jitter_phases(w, ow), .dt_ms = dt_ms, .reset = D.reset,
+                       .hdr = !up || vk_hdr_wanted()};   // linear scene light: as DLSS's IsHDR above
+        camera_planes(&fe.near_z, &fe.far_z, &fe.fov_y);
+        if (!vk_fsr3_evaluate(cb, &fe)) return dl_fail("FSR 3 evaluation", 0);
+        if (timed) times_mark(cb, T_DL1);
+    } else {
+        uint64_t c0 = timed ? kern_now_ns() : 0;
+        rec_drain();   // NGX records into the command buffer itself: the recorder thread must have made every call so far
+        if (timed) T.cpu_drain += kern_now_ns() - c0;
+        if (!e->feat) {
+            p_setu(p, "CreationNodeMask", 1);
+            p_setu(p, "VisibilityNodeMask", 1);
+            p_setu(p, "Width", w);
+            p_setu(p, "Height", h);
+            p_setu(p, "OutWidth", ow);
+            p_setu(p, "OutHeight", oh);
+            p_seti(p, "PerfQualityValue", perf_quality(w, ow));
+            // MVLowRes: motion vectors at the render size. In place (the light target): IsHDR | AutoExposure, linear scene
+            // light without an exposure texture. Scaled (the composite, tonemapped and graded, 0..1): neither, unless HDR
+            // output keeps highlights above 1 in it (vk_hdr.c).
+            int create = (1 << 1) | (!up || vk_hdr_wanted() ? (1 << 0) | (1 << 6) : 0);
+            p_seti(p, "DLSS.Feature.Create.Flags", create);
+            p_seti(p, "DLSS.Enable.Output.Subrects", 0);
+            // The model per mode (NVSDK_NGX_DLSS_Hint_Render_Preset: 1 A ... 11 K, 12 L, 13 M), as NVIDIA recommends for
+            // DLSS 4.5 (310.x): K (transformer) for DLAA, Quality and Balanced, M for Performance, L for Ultra Performance.
+            // M and L cost more on cards without FP8 (RTX 20/30). dlss_preset (D.preset, preset_check) takes one model for
+            // every mode instead. An older nvngx_dlss.dll without a model takes its own default.
+            int pk = D.preset ? D.preset : 11, pm = D.preset ? D.preset : 13, pl = D.preset ? D.preset : 12;
+            p_setu(p, "DLSS.Hint.Render.Preset.DLAA", (unsigned)pk);
+            p_setu(p, "DLSS.Hint.Render.Preset.UltraQuality", (unsigned)pk);
+            p_setu(p, "DLSS.Hint.Render.Preset.Quality", (unsigned)pk);
+            p_setu(p, "DLSS.Hint.Render.Preset.Balanced", (unsigned)pk);
+            p_setu(p, "DLSS.Hint.Render.Preset.Performance", (unsigned)pm);
+            p_setu(p, "DLSS.Hint.Render.Preset.UltraPerformance", (unsigned)pl);
+            NgxResult r = N.create(cb, NGX_FEATURE_SUPERSAMPLING, p, &e->feat);
+            if (!NGX_OK(r) || !e->feat) return dl_fail("DLSS feature creation", r);
+            D.reset = 1;
+            int q = perf_quality(w, ow), pr = q == 0 ? pm : q == 3 ? pl : pk;
+            rt_log("dlaa: DLSS feature created at %ux%u -> %ux%u, quality value %d, preset %c (scene format %d, depth format "
+                   "%d)", w, h, ow, oh, q, 'A' + pr - 1, (int)t->format, (int)z->format);
+        }
+        NgxResourceVK rc = res_image(cv, t->image, t->format, w, h, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+        NgxResourceVK ro = res_image(e->out_view, e->out, VK_FORMAT_R16G16B16A16_SFLOAT, ow, oh, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+        NgxResourceVK rz = res_image(zv, z->image, z->format, w, h, VK_IMAGE_ASPECT_DEPTH_BIT, 0);
+        NgxResourceVK rm = res_image(e->mv_view, e->mv, VK_FORMAT_R16G16_SFLOAT, w, h, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+        p_setp(p, "Color", &rc);
+        p_setp(p, "Output", &ro);
+        p_setp(p, "Depth", &rz);
+        p_setp(p, "MotionVectors", &rm);
+        p_setf(p, "Jitter.Offset.X", jx);
+        p_setf(p, "Jitter.Offset.Y", jy);
+        p_setf(p, "Sharpness", 0.0f);
+        p_seti(p, "Reset", D.reset);
+        // the characters' bias mask when mv_pass made one this frame; the parameter object is reused, so it is cleared
+        // explicitly otherwise
+        NgxResourceVK rk = res_image(e->x_view[2], e->x[2], VK_FORMAT_R8_UNORM, w, h, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+        p_setp(p, "DLSS.Input.Bias.Current.Color.Mask", masked ? (void *)&rk : NULL);
+        p_setu(p, "DLSS.Input.Bias.Current.Color.Subrect.Base.X", 0);
+        p_setu(p, "DLSS.Input.Bias.Current.Color.Subrect.Base.Y", 0);
+        p_setf(p, "MV.Scale.X", 1.0f);
+        p_setf(p, "MV.Scale.Y", 1.0f);
+        p_setu(p, "DLSS.Render.Subrect.Dimensions.Width", w);
+        p_setu(p, "DLSS.Render.Subrect.Dimensions.Height", h);
+        p_setf(p, "DLSS.Pre.Exposure", 1.0f);
+        p_setf(p, "DLSS.Exposure.Scale", 1.0f);
+        p_setf(p, "FrameTimeDeltaInMsec", dt_ms);
+        c0 = timed ? kern_now_ns() : 0;
+        NgxResult r = N.evaluate(cb, e->feat, p, NULL);
+        if (timed) T.cpu_ngx += kern_now_ns() - c0;
+        if (!NGX_OK(r)) return dl_fail("DLSS evaluation", r);
+        if (timed) times_mark(cb, T_DL1);   // through the recorder, after NGX's own commands
+    }
     vk_mvprev_swap();   // the objects' blocks of this frame become last frame's for the next
     D.reset = 0;
     D.last = e, e->used = D.evals + 1;
@@ -1146,7 +1192,7 @@ static void dlss_mode(void) {
         while (i < 5 && strcmp(cfg_value("AC_DLSS"), modes[i])) i++;
         cfg_set("AC_DLSS", modes[(i + 1) % 5]);
     }
-    const char *m = N.available && !D.failed && cfg_bool("AC_DLAA") ? cfg_value("AC_DLSS") : "dlaa";
+    const char *m = backend_ok() && !D.failed && cfg_bool("AC_DLAA") ? cfg_value("AC_DLSS") : "dlaa";
     if (strcmp(m, mode)) {
         snprintf(mode, sizeof mode, "%s", m);
         res_dlss_mode(m);
@@ -1159,10 +1205,10 @@ void vk_dlaa_frame(void) {
     vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE;
     dlss_mode();
     if (N.available) preset_check();
-    int on = N.available && cfg_bool("AC_DLAA");
-    if (on != D.on) {
-        rt_log("dlaa: %s", on ? "on" : "off");
-        D.on = on;
+    int fsr3 = use_fsr3(), on = backend_ok() && cfg_bool("AC_DLAA");
+    if (on != D.on || (on && fsr3 != D.fsr3)) {
+        rt_log("dlaa: %s", on ? fsr3 ? "on (AMD FSR 3)" : "on (DLSS)" : "off");
+        D.on = on, D.fsr3 = fsr3;
         // either way the next DLAA frame starts a new history from an unjittered frame
         D.reset = 1, D.cam_prev_ok = D.view_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;
         D.comp_ok = 0;

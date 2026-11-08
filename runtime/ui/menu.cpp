@@ -653,6 +653,8 @@ static void tab_screen(float scale) {
     opt_slider("AC_PCSS", UI_MENU_PCSS, 0, 200, UI_MENU_PCSS_DESC, 10, "%.0f %%");
     opt_slider("AC_CONTACT_SHADOWS", UI_MENU_CONTACT_SHADOWS, 0, 100, UI_MENU_CONTACT_SHADOWS_DESC, 10, "%.0f %%");
     opt_toggle("AC_DLAA", UI_MENU_DLAA, UI_MENU_DLAA_DESC);
+    static const UiTextId temporal[] = {UI_MENU_TEMPORAL_AUTO, UI_MENU_TEMPORAL_DLSS, UI_MENU_TEMPORAL_FSR3};
+    opt_choice("AC_TEMPORAL_UPSCALER", UI_MENU_TEMPORAL, temporal, 3, UI_MENU_TEMPORAL_DESC);
     static const UiTextId dlss[] = {UI_MENU_DLSS_DLAA, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED,
                                     UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
     // the upscaling modes set the scene size through the scene patch set (recomp/patches-v101.txt): without it there

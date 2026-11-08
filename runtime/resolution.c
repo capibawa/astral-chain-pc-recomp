@@ -96,16 +96,25 @@ static int dlss_dll(void) {
 #endif
 }
 
+// A temporal upscaler can take a smaller scene: AMD FSR 3 always (AC_TEMPORAL_UPSCALER auto or fsr3; it needs no file,
+// and auto falls back to it where DLSS is missing), DLSS only with its model beside the executable.
+static int upscaler_runs(int *dll) {
+    if (*dll < 0) *dll = dlss_dll();
+    return *dll || strcmp(cfg_value("AC_TEMPORAL_UPSCALER"), "dlss");
+}
+
 // The scene's share of the output for an AC_DLSS mode; 0 for dlaa (the scene keeps the game's size), while DLSS/DLAA
-// is off (the mode the menu still holds would shrink the scene for the game's plain scaling) and where DLSS cannot run.
+// is off (the mode the menu still holds would shrink the scene for the game's plain scaling) and where no temporal
+// upscaler can run.
 static double dlss_share(const char *m) {
     static const struct { const char *name; double k; } dlss[] = {
         {"quality", 2.0 / 3.0}, {"balanced", 0.58}, {"performance", 0.5}, {"ultra_performance", 1.0 / 3.0}};
-    static int dll = -1;
+    static int dll = -1, said;
     if (!cfg_bool("AC_DLAA")) return 0;
     for (int i = 0; i < (int)(sizeof dlss / sizeof dlss[0]); i++)
         if (!strcmp(m, dlss[i].name)) {
-            if (dll < 0 && !(dll = dlss_dll()))
+            int runs = upscaler_runs(&dll);
+            if (!runs && !said++)
 #ifdef _WIN32
                 rt_log("resolution: DLSS %s needs nvngx_dlss.dll next to astralchain.exe, which is missing: the scene "
                        "keeps the game's size", m);
@@ -113,7 +122,7 @@ static double dlss_share(const char *m) {
                 rt_log("resolution: DLSS %s needs libnvidia-ngx-dlss.so.<version> next to the executable, which is "
                        "missing: the scene keeps the game's size", m);
 #endif
-            return dll ? dlss[i].k : 0;
+            return runs ? dlss[i].k : 0;
         }
     return 0;
 }
@@ -484,7 +493,8 @@ static volatile uint64_t size_pending; // that size until the game thread takes 
 static void scene_only_init(int set) {
     unsigned g[2];
     res_game_size(g);
-    R.live = cfg_bool("AC_DLAA") && dlss_dll();
+    int dll = -1;
+    R.live = cfg_bool("AC_DLAA") && upscaler_runs(&dll);
     if (!R.live) {
         rt_patch_switch(set, 0);
         return;

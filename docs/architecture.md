@@ -153,6 +153,14 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   on their own and where they were last frame. `AC_MV_CHECK=<frames>` measures how well the vectors explain the picture
   (warp and end-point errors of the camera's and the final vectors). `smaa` switches the game's own SMAA (its edge,
   weight and blending passes; an old `fxaa` line is read as `smaa`).
+- AMD FSR 3 (`runtime/vk_fsr3.c`, `temporal_upscaler = auto|dlss|fsr3`; auto takes FSR 3 where NGX is not up) runs at
+  the same point as DLSS on the same inputs: the jitter, the camera and per-object motion vectors, the resets and the
+  scene sizes of the `dlss` modes. Its passes are AMD's FSR 3.1.4 GLSL from the FidelityFX SDK v1.1.4, unmodified in
+  `runtime/shaders/ffx3` and compiled by `tools/build_shaders.py` into `runtime/fsr3_spv.h` (LDR and HDR variants);
+  the host is our own: it makes AMD's internal images per render and output size, fills the constant blocks and records
+  the seven passes (prepare inputs, luma pyramid, shading change pyramid, shading change, prepare reactivity, luma
+  instability, accumulate) through the recorder. The camera's near and far planes and field of view come from the
+  projection in the camera block. No reactive or transparency mask and no RCAS (DLSS runs unsharpened as well).
 - DLSS upscaling (`dlss = quality | balanced | performance | ultra_performance`, live, as in the TotK Recomp). The game
   keeps three dynamic-resolution levels, each with its own scene targets, and draws its output and HUD at the render
   size `res1080` sets. With DLSS able to run (`dlaa = 1`, `nvngx_dlss.dll` there) the `scene` patch set

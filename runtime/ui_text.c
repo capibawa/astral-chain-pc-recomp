@@ -121,14 +121,14 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                   "away. Spreads the shadow map over more ground: raise Shadow resolution with it. "
                                   "Takes effect at the next start.",
     [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS for the 3D scene (NVIDIA RTX GPUs; nvngx_dlss.dll next to astralchain.exe): smoother edges "
-                          "and less shimmer. The HUD is not touched. The mode below sets the resolution it works from. Takes effect "
-                          "after a restart.",
+    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS for the 3D scene (NVIDIA RTX GPUs; nvngx_dlss.dll next to astralchain.exe), or AMD "
+                          "FSR 3 on any GPU (Upscaler below): smoother edges and less shimmer. The HUD is not touched. The "
+                          "mode below sets the resolution it works from. Takes effect after a restart.",
     [UI_MENU_DLSS] = "DLSS mode",
     [UI_MENU_DLSS_DESC] = "DLAA draws the 3D scene at full resolution. Quality, Balanced, Performance and Ultra "
                           "Performance draw it at 67, 58, 50 and 33 % of the game resolution (times the 3D render "
-                          "scale) and let DLSS scale it up, for more frames per second; the game's SMAA is off while "
-                          "they run. Needs NVIDIA DLSS on. Changes take effect at once.",
+                          "scale) and let DLSS or FSR 3 scale it up, for more frames per second; the game's SMAA is "
+                          "off while they run. Needs the setting above on. Changes take effect at once.",
     [UI_MENU_DLSS_DLAA] = "DLAA (native)", [UI_MENU_DLSS_QUALITY] = "Quality", [UI_MENU_DLSS_BALANCED] = "Balanced",
     [UI_MENU_DLSS_PERFORMANCE] = "Performance", [UI_MENU_DLSS_ULTRA] = "Ultra Performance",
     [UI_MENU_DLSS_PRESET] = "DLSS model",
@@ -143,6 +143,11 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                 "leaves those edges a little less smooth. Applies at once.",
     [UI_MENU_DLSS_CHARS_OFF] = "Off", [UI_MENU_DLSS_CHARS_LIGHT] = "Light", [UI_MENU_DLSS_CHARS_MEDIUM] = "Medium",
     [UI_MENU_DLSS_CHARS_FULL] = "Full",
+    [UI_MENU_TEMPORAL] = "Upscaler",
+    [UI_MENU_TEMPORAL_DESC] = "What anti-aliases and scales the 3D scene when the setting above is on. Automatic: NVIDIA "
+                              "DLSS where it can run, AMD FSR 3 everywhere else. FSR 3 runs on any GPU; DLSS looks "
+                              "better where both run. The mode above applies to both. Changes take effect at once.",
+    [UI_MENU_TEMPORAL_AUTO] = "Automatic", [UI_MENU_TEMPORAL_DLSS] = "NVIDIA DLSS", [UI_MENU_TEMPORAL_FSR3] = "AMD FSR 3",
     [UI_MENU_SMAA] = "Game anti-aliasing (SMAA)",
     [UI_MENU_SMAA_DESC] = "The game's own SMAA edge smoothing. With DLAA on it is not needed, and off saves its three "
                           "passes.",
