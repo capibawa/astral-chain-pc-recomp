@@ -10,6 +10,9 @@ int vk_dlaa_dlss_state(void);
 // What anti-aliases the scene now (anti_aliasing, upscaling): none (SMAA or nothing), DLAA, DLSS upscaling or FSR 3.
 enum { VK_TAA_NONE, VK_TAA_DLAA, VK_TAA_DLSS, VK_TAA_FSR3 };
 int vk_dlaa_running(void);
+// 1 while DLSS or FSR 3 upscaling sharpens its picture with RCAS before the game draws its HUD (vk_dlaa.c sharpen): the
+// present's FSR pass (vk_fsr.c vk_fsr_record) then leaves a picture of the window's size unsharpened. Any thread.
+int vk_dlaa_presharpened(void);
 // vk_device.c: NGX's instance and device extensions join the lists (room for max names); vk_dlaa_init after the
 // device exists brings NGX up and checks that DLSS is available.
 void vk_dlaa_instance_exts(const char **ext, uint32_t *n, uint32_t max);

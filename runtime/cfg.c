@@ -223,8 +223,8 @@ static void add(char *key, char *value, int line) {
 }
 
 // ssaa (the host-side render scale: off, 1440p or 2160p, or a factor from 0.2.x/0.3.0) is gone: output_res makes the game
-// render the size itself. A 1440p or 2160p line is read as output_res = 2560x1440 or 3840x2160, which the next cfg_save
-// writes; an output_res line of the file's own other than the default 1920x1080 wins.
+// render the size itself. A 1440p, 2160p or auto line is read as output_res = 2560x1440, 3840x2160 or auto, which the
+// next cfg_save writes; an output_res line of the file's own other than the default 1920x1080 wins.
 static void migrate_ssaa(void) {
     CfgEntry *ssaa = NULL, *out = NULL;
     for (int i = 0; i < n_entries; i++) {
@@ -236,6 +236,7 @@ static void migrate_ssaa(void) {
     double k = atof(v);
     if (!strcmp(v, "1440p") || (strcmp(v, "2160p") && k > 1.01 && k < 1.75)) to = "2560x1440";
     else if (!strcmp(v, "2160p") || (strcmp(v, "off") && k >= 1.75)) to = "3840x2160";
+    else if (!strcmp(v, "auto")) to = "auto";
     if (!to) return;
     rt_log("cfg: astralchain.ini ssaa = %s is read as output_res = %s", v, to);
     if (out) {

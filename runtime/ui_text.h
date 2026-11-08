@@ -33,7 +33,7 @@ typedef enum {
     UI_MENU_PERF_OVERLAY, UI_MENU_PERF_OVERLAY_DESC, UI_MENU_PERF_OFF, UI_MENU_PERF_FPS, UI_MENU_PERF_FULL,
     UI_PERF_LINE_FPS,
     UI_MENU_GRAPHICS,         // group heading over the resolution rows
-    UI_MENU_OUTPUT_RES, UI_MENU_OUTPUT_RES_DESC,   // output_res (resolution.c res_pick): the size the game renders
+    UI_MENU_OUTPUT_RES, UI_MENU_OUTPUT_RES_DESC, UI_MENU_OUTPUT_RES_AUTO,   // output_res (resolution.c res_pick): the size the game renders
     UI_MENU_UPSCALER, UI_MENU_UPSCALER_DESC, UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR,
     UI_MENU_ASPECT, UI_MENU_ASPECT_DESC, UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH,
     UI_MENU_FOV, UI_MENU_FOV_DESC,

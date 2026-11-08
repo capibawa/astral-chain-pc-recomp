@@ -24,6 +24,7 @@
 #include "fsr_easu_spv.h"
 #include "fsr_rcas_spv.h"
 #include "host.h"
+#include "vk_dlaa.h"
 
 #define SLOTS 8
 
@@ -58,7 +59,6 @@ static VkPipeline make_pipeline(VkCtx *c, const uint32_t *code, size_t size) {
 }
 
 static int init(VkCtx *c) {
-    F.tried = 1;
     F.push = (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(c->device, "vkCmdPushDescriptorSetKHR");
     if (!F.push) {
         rt_log("vk: FSR off: no VK_KHR_push_descriptor; the present scales bilinearly");
@@ -91,6 +91,34 @@ static int init(VkCtx *c) {
     }
     rt_log("vk: FSR 1 (EASU + RCAS) ready for the present");
     return F.ok = 1;
+}
+
+// The pipelines are made once, by whichever of the present (vk_fsr_record) and the replay (vk_fsr_rcas, under
+// vk_dlaa.c) asks first; the other sees nothing ready until that is done and skips FSR for that frame.
+static int ready(VkCtx *c) {
+    static int32_t claimed;
+    if (!__atomic_load_n(&F.tried, __ATOMIC_ACQUIRE)) {
+        if (__atomic_exchange_n(&claimed, 1, __ATOMIC_ACQ_REL)) return 0;
+        init(c);
+        __atomic_store_n(&F.tried, 1, __ATOMIC_RELEASE);
+    }
+    return F.ok;
+}
+
+static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageView out, const float pc[8]);
+
+static int sharpness(void) {
+    int s = cfg_int("AC_SHARPNESS");
+    return s < 0 ? 0 : s > 100 ? 100 : s;
+}
+
+int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h) {
+    int sharp = sharpness();
+    if (strcmp(cfg_value("AC_UPSCALER"), "fsr") || !sharp || !ready(vk_ctx())) return 0;
+    float rcas[8] = {(float)w, (float)h, (float)(100 - sharp) / 50.0f, 0, 0, 0, 0, 0};
+    bind_pass(cb, F.rcas, src, dst, rcas);
+    vkCmdDispatch(cb, (w + 15) / 16, (h + 15) / 16, 1);
+    return 1;
 }
 
 static void free_images(VkCtx *c) {
@@ -169,8 +197,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     int down = dw < (uint32_t)cw || dh < (uint32_t)ch;   // a smaller window: the area downscale in EASU's place
     int same = dw + 2 >= (uint32_t)cw && dw <= (uint32_t)cw + 2 && dh + 2 >= (uint32_t)ch && dh <= (uint32_t)ch + 2;
     VkCtx *c = vk_ctx();
-    if (!F.tried) init(c);
-    if (!F.ok || !ensure_images(c, dw, dh)) return 0;
+    if (!ready(c) || !ensure_images(c, dw, dh)) return 0;
     slot %= SLOTS;
     if (F.src_view[slot]) vkDestroyImageView(c->device, F.src_view[slot], NULL);
     VkImageViewCreateInfo vi = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = src,
@@ -182,9 +209,15 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
         F.src_view[slot] = VK_NULL_HANDLE;
         return 0;
     }
-    int sharp = cfg_int("AC_SHARPNESS");
-    if (sharp < 0) sharp = 0;
-    if (sharp > 100) sharp = 100;
+    int sharp = sharpness();
+    // DLSS or FSR 3 upscaling sharpened the scene before the game drew its HUD (vk_dlaa.c sharpen): at 1:1 the window
+    // only copies, so the HUD stays as the game drew it and the scene is not sharpened twice
+    static int copying;   // the last 1:1 frame was copied because the upscaler had sharpened it
+    int pre = same && vk_dlaa_presharpened();
+    if (pre != copying && same)
+        rt_log("vk: %dx%d at 1:1: %s", cw, ch, pre ? "copied, sharpened before the HUD" : "RCAS on the present");
+    if (same) copying = pre;
+    if (pre) sharp = 0;
     if (same && sharp == 0) return 0;   // nothing to do: the source and the window are the same size
     if (F.lcw != cw || F.lch != ch || F.ldw != dw || F.ldh != dh) {
         F.lcw = cw, F.lch = ch, F.ldw = dw, F.ldh = dh;

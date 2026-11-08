@@ -182,6 +182,15 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   composite at the begin of that pass, and the pass samples its output in the composite's place (`vk_dlaa_swap_img`);
   SMAA is off meanwhile and material textures take a mip bias of log2(scene / output). `ssaa` multiplies both sizes
   (2160p performance: 1920x1080 to 3840x2160). With SMAA or nothing at start the set is off and the game renders as before.
+  `output_res = auto` is 1920x1080 unless upscaling runs from the start (`resolution.c` `res_upscaling_at_start`);
+  then the game renders 2560x1440 or 3840x2160, the largest the screen holds (`resolution.c` `res_auto`,
+  `gfx_display_height`, the primary monitor before the window exists), so the upscaler writes the screen's size, the
+  HUD is drawn at it and the window has nothing left to scale.
+- Sharpening while DLSS or FSR 3 upscales: neither sharpens itself, so `vk_dlaa.c` `sharpen` runs FSR 1's RCAS
+  (`vk_fsr.c` `vk_fsr_rcas`, at `sharpness`, only with `upscaler = fsr`) on the upscaled composite before the game's
+  scaling draw reads it. The scene is sharpened once and the HUD drawn over it afterwards is not; at 1:1 the present
+  then copies the picture instead of running its own RCAS (`vk_dlaa_presharpened`). With DLAA, SMAA or nothing the
+  present's RCAS sharpens as before.
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a
   compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). A discrete GPU with 6 GB of video memory or more keeps

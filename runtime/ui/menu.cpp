@@ -55,6 +55,7 @@ void vk_queue_lock(void);
 void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);
 void res_game_size(unsigned out[2]);
+const char *res_output_asked(void);
 int rt_patch_set(const char *name);
 double frame_step_limit_hz(void);
 extern const int rt_game_version;
@@ -490,14 +491,18 @@ static void row_window_size(void) {
 
 // AC_OUTPUT_RES (resolution.c res_pick): the size the game renders itself, as in the TotK Recomp's menu: its 16:9 sizes
 // up to 3840x2160, the most the process heap leaves room for, 1280x720 for weak GPUs (resolution.c res_size takes 16:9
-// sizes of 32n x 18n only; the Steam Deck profile's default is 1280x720). Another size from the ini shows as it is. Read at
-// start; the row says "after restart" while the stored value differs from the size this run renders.
+// sizes of 32n x 18n only; the Steam Deck profile's default is 1280x720), and auto, the screen's size while temporal
+// upscaling runs from the start (resolution.c res_auto). Another size from the ini shows as it is. Read at start; the
+// row says "after restart" while the stored value differs from the one this run started with (for auto: from the
+// value itself, as auto's size is only known at start).
 static void row_output_res(void) {
-    static const char *const vals[] = {"1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160"};
+    static const char *const vals[] = {"auto",      "1280x720",  "1600x900", "1920x1080",
+                                       "2560x1440", "3200x1800", "3840x2160"};
     enum { N = sizeof vals / sizeof *vals };
     char shown[N][32];
     const char *names[N];
-    for (int i = 0; i < N; i++) {
+    names[0] = menu_text(UI_MENU_OUTPUT_RES_AUTO);
+    for (int i = 1; i < N; i++) {
         int w = 0, h = 0;
         sscanf(vals[i], "%dx%d", &w, &h);
         snprintf(shown[i], sizeof shown[i], "%d × %d", w, h);   // U+00D7, the multiplication sign
@@ -507,7 +512,9 @@ static void row_output_res(void) {
     res_game_size(g);
     char now[16];
     snprintf(now, sizeof now, "%ux%u", g[0], g[1]);
-    const char *note = strcmp(cfg_value("AC_OUTPUT_RES"), now) ? menu_text(UI_MENU_AFTER_RESTART) : nullptr;
+    const char *v = cfg_value("AC_OUTPUT_RES");
+    int later = !strcmp(v, "auto") ? strcmp(res_output_asked(), "auto") : strcmp(v, now);
+    const char *note = later ? menu_text(UI_MENU_AFTER_RESTART) : nullptr;
     opt_choice_list("AC_OUTPUT_RES", UI_MENU_OUTPUT_RES, vals, names, N, UI_MENU_OUTPUT_RES_DESC, -1, note);
 }
 

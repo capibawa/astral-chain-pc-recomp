@@ -118,6 +118,17 @@ static const char *start_mode(void) {
     return cfg_value("AC_UPSCALING_QUALITY");
 }
 
+// Upscaling makes the scene smaller at start (start_mode, quietly): DLAA not chosen where it can run, upscaling on and
+// able to run, and the scene patch set there to shrink the scene. output_res = auto (res_size) raises the game's
+// resolution to the screen then, so the upscaler writes the screen's size and the window only copies.
+int res_upscaling_at_start(void) {
+    int dll = dlss_dll();
+    const char *up = cfg_value("AC_UPSCALING");
+    if (!strcmp(cfg_value("AC_ANTI_ALIASING"), "dlaa") && dll) return 0;
+    if (!strcmp(up, "off") || (!strcmp(up, "dlss") && !dll)) return 0;
+    return rt_patch_set("scene") >= 0;
+}
+
 // The scene's share of the output for a mode: 0 for dlaa (the scene keeps the game's size), else the quality's.
 static double dlss_share(const char *m) {
     static const struct { const char *name; double k; } dlss[] = {
@@ -372,10 +383,31 @@ int res_output_grid(const char *o, unsigned *w, unsigned *h) {
     return 1;
 }
 
+int gfx_display_height(void);   // vk.h: the screen the game shows on, 0 when unknown
+
+// output_res = auto: 1920x1080 unless temporal upscaling runs from the start (res_upscaling_at_start); then the largest
+// of 2560x1440 and 3840x2160 the screen holds (gfx_display_height, which also answers before the window exists), so
+// DLSS or FSR 3 writes the screen's size straight from the small scene, the HUD is drawn at that size, and the window
+// copies the picture 1:1 instead of scaling it a second time. Only those two sizes are taken: a 1600-line screen gets
+// 2560x1440, which the window then scales up the rest of the way.
+static const char *res_auto(void) {
+    if (!res_upscaling_at_start()) return "1920x1080";
+    int screen = gfx_display_height();
+    const char *o = screen >= 2160 ? "3840x2160" : screen >= 1440 ? "2560x1440" : "1920x1080";
+    rt_log("resolution: output_res auto: upscaling to a %d-line screen: %s", screen, o);
+    return o;
+}
+
+static char asked[16];   // output_res as res_size read it
+
+const char *res_output_asked(void) { return asked; }
+
 static void res_size(unsigned *w, unsigned *h) {
     static unsigned sw, sh;
     if (!sw) {
         const char *o = cfg_value("AC_OUTPUT_RES");
+        snprintf(asked, sizeof asked, "%s", o);
+        if (!strcmp(o, "auto")) o = res_auto();
         sw = 1920, sh = 1080;
         if (!res_output_grid(o, &sw, &sh) && strcmp(o, "1920x1080"))
             rt_log("resolution: output_res = %s is not a 16:9 size of 32n x 18n from 1280x720 to 3840x2160; "

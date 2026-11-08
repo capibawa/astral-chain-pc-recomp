@@ -137,6 +137,16 @@ int gfx_window_monitor_size(int *w, int *h) {
     return 1;
 }
 
+int gfx_display_height(void) {
+    int w, h;
+    if (gfx_window_monitor_size(&w, &h)) return h;
+    // Before the window: the primary display, if SDL's video is up already (it is brought up on the window's thread,
+    // not here)
+    if (!SDL_WasInit(SDL_INIT_VIDEO)) return 0;
+    const SDL_DisplayMode *m = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
+    return m ? (int)(m->h * m->pixel_density + 0.5f) : 0;
+}
+
 static void density_update(void) {
     float d = SDL_GetWindowPixelDensity(g_win);
     __atomic_store_n(&g_density_milli, (int32_t)((d > 0 ? d : 1) * 1000 + 0.5f), __ATOMIC_RELAXED);

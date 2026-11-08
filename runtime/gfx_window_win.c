@@ -200,6 +200,17 @@ int gfx_window_monitor_size(int *w, int *h) {
     return 1;
 }
 
+int gfx_display_height(void) {
+    int w, h;
+    if (gfx_window_monitor_size(&w, &h)) return h;
+    // Before the window exists (vk_texture.c render_scale runs from res_init): the primary monitor, where CreateWindowEx
+    // with CW_USEDEFAULT opens it. The process is per-monitor DPI aware from its manifest, so these are physical pixels.
+    MONITORINFO mi = {sizeof mi};
+    POINT origin = {0, 0};
+    if (!GetMonitorInfoW(MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY), &mi)) return 0;
+    return mi.rcMonitor.bottom - mi.rcMonitor.top;
+}
+
 static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     LRESULT input_res;
     if (input_window_msg(h, m, w, l, &input_res)) return input_res;
