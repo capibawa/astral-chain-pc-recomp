@@ -189,8 +189,11 @@ def draw(img, orig, key, body, cut, dy=0.0):
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     a = G.render(CELL_W, CELL_H, body(cx, cy), cut(cx, cy + dy))
     cell = cell_view(img, key)
-    cell[..., :3] = 255
-    cell[..., 3] = np.round(a * 255).astype(np.uint8)
+    alpha = np.round(a * 255).astype(np.uint8)
+    # As in the game's own icons: white wherever any coverage is, black where none is. The UI blends the colour of
+    # fully transparent texels too, so white there showed as a grey box around the icon.
+    cell[..., :3] = np.where(alpha[..., None] > 0, 255, 0).astype(np.uint8)
+    cell[..., 3] = alpha
 
 
 def copy_icon(img, orig, dst, src):
