@@ -55,15 +55,12 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES] = "Game resolution",
     [UI_MENU_OUTPUT_RES_DESC] = "The size the game draws its picture and interface in. 1280 x 720 is the lightest, for "
                                 "weaker GPUs. Above 1920 x 1080 the game needs more memory (about 240 MB more at "
-                                "2560 x 1440, 790 MB at 3840 x 2160) and GPU time. Automatic: 1920 x 1080, except "
-                                "while temporal upscaling runs, where it takes your screen's size (2560 x 1440 or "
-                                "3840 x 2160), so DLSS or FSR 3 scales straight to the screen and the interface is "
-                                "drawn at full resolution. Takes effect after a restart.",
+                                "2560 x 1440, 790 MB at 3840 x 2160) and GPU time. Automatic: 1920 x 1080 with SMAA "
+                                "or no anti-aliasing; with DLAA or temporal upscaling it takes your screen's size "
+                                "(2560 x 1440 or 3840 x 2160), so DLAA runs at the screen's resolution, DLSS or FSR 3 "
+                                "scale straight to it, and the interface is drawn at full resolution. Takes effect "
+                                "after a restart.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automatic",
-    [UI_MENU_UPSCALER] = "Scaling to the window",
-    [UI_MENU_UPSCALER_DESC] = "How the picture is scaled to the window. FSR keeps edges and detail sharper than "
-                              "bilinear, and sharpens the picture even when it already fits the window.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Picture shape",
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
                             "screen): keep the picture's shape with black bars, or stretch it over the window.",
@@ -79,9 +76,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_ANISO_DESC] = "Anisotropic filtering of surface textures: ground, roads and walls seen at a shallow angle stay sharp into the distance instead of blurring. Game: the level the game asks for, as on the Switch. Auto: 16x with 3D render scale 1440p, twice the game's level at 2160p, the game's level otherwise.",
     [UI_MENU_ANISO_GAME] = "Game",
     [UI_MENU_ANISO_AUTO] = "Auto",
-    [UI_MENU_SHARPNESS] = "FSR sharpness",
-    [UI_MENU_SHARPNESS_DESC] = "Sharpening after FSR scaling; 0 turns it off. While DLSS or FSR 3 upscales, it sharpens "
-                               "the 3D scene before the HUD is drawn, so the HUD stays as the game drew it.",
+    [UI_MENU_SHARPNESS] = "Sharpness",
+    [UI_MENU_SHARPNESS_DESC] = "AMD RCAS sharpening of the 3D scene, in every anti-aliasing and upscaling mode. It runs "
+                               "before the HUD is drawn, so the HUD stays crisp; 0 turns it off completely. Applies at "
+                               "once.",
     [UI_MENU_COLOR] = "Colour",
     [UI_MENU_COLOR_PRESET] = "Colour profile",
     [UI_MENU_COLOR_PRESET_DESC] = "Sets the four values below. Vivid: more contrast and saturation, shadows opened a "
@@ -128,8 +126,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_AA] = "Anti-aliasing",
     [UI_MENU_AA_DESC] = "Smooths the edges of the 3D scene; the HUD is not touched. SMAA: the game's own. DLAA: NVIDIA "
                         "DLSS at full resolution, smoother and steadier than SMAA (NVIDIA RTX GPUs with nvngx_dlss.dll "
-                        "next to astralchain.exe; not offered where it cannot run). Temporal upscaling, when on, "
-                        "replaces SMAA; DLAA replaces upscaling. Choosing DLAA for the first time takes effect after a "
+                        "next to astralchain.exe; not offered where it cannot run). With the automatic 3D render "
+                        "scale DLAA runs at your screen's resolution, the most demanding choice: for more frames, "
+                        "use temporal upscaling instead. Temporal upscaling, when on, replaces SMAA; DLAA replaces "
+                        "upscaling. Choosing DLAA for the first time takes effect after a "
                         "restart.",
     [UI_MENU_AA_OFF] = "Off", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
     [UI_MENU_UPSCALING] = "Temporal upscaling",
@@ -398,9 +398,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_OV_SCALING] = "Scaling", [UI_MENU_OV_LIMIT] = "Frame limit", [UI_MENU_OV_PRESENT] = "Presentation",
     [UI_MENU_OV_TEX] = "Texture compression", [UI_MENU_OV_OS] = "OS",
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
-    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, sharpness %d%%", [UI_MENU_OV_SCALE_NONE] = "none (1:1)",
-    [UI_MENU_OV_SCALE_BILINEAR] = "bilinear",
-    [UI_MENU_OV_FMT_AREA] = "area average, sharpness %d%%",
+    [UI_MENU_OV_SCALE_FSR] = "AMD FSR 1", [UI_MENU_OV_SCALE_NONE] = "none (1:1)",
+    [UI_MENU_OV_SCALE_BILINEAR] = "bilinear", [UI_MENU_OV_SCALE_AREA] = "area average",
+    [UI_MENU_OV_FMT_PRESHARP] = "%s; sharpened before the HUD (%d%%)",
+    [UI_MENU_OV_FMT_SHARP_PRESENT] = "%s, sharpness %d%%",
     [UI_MENU_TAB_CHEATS] = "Cheats",
     [UI_MENU_CHEATS_NONE] = "No cheats for this game version. A mod's cheats are an Atmosphere cheat file in its "
                             "cheats folder, named after the game's build: mods\\<mod>\\cheats\\%s. Restart the game to "
@@ -466,14 +467,10 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES_DESC] = "Размер, в котором игра рисует картинку и интерфейс. 1280 × 720 — самый лёгкий, для "
                                 "слабых видеокарт. Выше 1920 × 1080 игре нужно больше памяти (примерно на 240 МБ при "
                                 "2560 × 1440 и на 790 МБ при 3840 × 2160) и времени GPU. Автоматически: 1920 × 1080, "
-                                "а при временном масштабировании — размер вашего экрана (2560 × 1440 или 3840 × 2160), "
-                                "так что DLSS или FSR 3 масштабирует сразу до экрана, а интерфейс рисуется в полном "
-                                "разрешении. Действует после перезапуска.",
+                                "а с DLAA или временным масштабированием — размер вашего экрана (2560 × 1440 или "
+                                "3840 × 2160), так что DLAA работает в разрешении экрана, DLSS или FSR 3 масштабирует "
+                                "сразу до него, а интерфейс рисуется в полном разрешении. Действует после перезапуска.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Автоматически",
-    [UI_MENU_UPSCALER] = "Масштабирование под окно",
-    [UI_MENU_UPSCALER_DESC] = "Как картинка подгоняется под окно. FSR сохраняет края и детали чётче билинейного и "
-                              "повышает резкость, даже когда картинка уже совпадает с окном.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Билинейное",
     [UI_MENU_ASPECT] = "Форма картинки",
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
                             "форму картинки с чёрными полосами или растянуть её на всё окно.",
@@ -795,9 +792,10 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_OV_SCALING] = "Масштабирование", [UI_MENU_OV_LIMIT] = "Лимит кадров", [UI_MENU_OV_PRESENT] = "Вывод кадров",
     [UI_MENU_OV_TEX] = "Сжатие текстур", [UI_MENU_OV_OS] = "ОС",
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
-    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, резкость %d%%", [UI_MENU_OV_SCALE_NONE] = "нет (1:1)",
-    [UI_MENU_OV_SCALE_BILINEAR] = "билинейное",
-    [UI_MENU_OV_FMT_AREA] = "усреднение по площади, резкость %d%%",
+    [UI_MENU_OV_SCALE_FSR] = "AMD FSR 1", [UI_MENU_OV_SCALE_NONE] = "нет (1:1)",
+    [UI_MENU_OV_SCALE_BILINEAR] = "билинейное", [UI_MENU_OV_SCALE_AREA] = "усреднение по площади",
+    [UI_MENU_OV_FMT_PRESHARP] = "%s; резкость до интерфейса (%d%%)",
+    [UI_MENU_OV_FMT_SHARP_PRESENT] = "%s, резкость %d%%",
     [UI_MENU_TAB_CHEATS] = "Читы",
     [UI_MENU_CHEATS_NONE] = "Для этой версии игры читов нет. Читы мода — это файл читов Atmosphere в его папке cheats "
                             "с именем по сборке игры: mods\\<мод>\\cheats\\%s. Перезапустите игру, чтобы они "
@@ -884,14 +882,11 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES_DESC] = "O tamanho em que o jogo desenha a imagem e a interface. 1280 × 720 é o mais leve, "
                                 "para GPUs mais fracas. Acima de 1920 × 1080 o jogo precisa de mais memória (cerca de "
                                 "240 MB a mais em 2560 × 1440, 790 MB em 3840 × 2160) e tempo de GPU. Automático: "
-                                "1920 × 1080, exceto com o upscaling temporal ligado, quando usa o tamanho da sua tela "
-                                "(2560 × 1440 ou 3840 × 2160), para o DLSS ou o FSR 3 escalar direto para a tela e a "
-                                "interface ser desenhada em resolução total. Vale após reiniciar.",
+                                "1920 × 1080, exceto com DLAA ou upscaling temporal, quando usa o tamanho da sua tela "
+                                "(2560 × 1440 ou 3840 × 2160), para o DLAA rodar na resolução da tela, o DLSS ou o "
+                                "FSR 3 escalar direto para ela e a interface ser desenhada em resolução total. Vale "
+                                "após reiniciar.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automático",
-    [UI_MENU_UPSCALER] = "Escala para a janela",
-    [UI_MENU_UPSCALER_DESC] = "Como a imagem é ajustada à janela. O FSR mantém bordas e detalhes mais nítidos que o "
-                              "bilinear e aumenta a nitidez mesmo quando a imagem já tem o tamanho da janela.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Formato da imagem",
     [UI_MENU_ASPECT_DESC] = "Quando o formato da janela difere do da resolução do jogo (uma imagem 16:9 numa tela "
                             "21:9): manter o formato da imagem com barras pretas ou esticá-la sobre a janela.",
@@ -1112,9 +1107,10 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_OV_SCALING] = "Escala", [UI_MENU_OV_LIMIT] = "Limite de quadros", [UI_MENU_OV_PRESENT] = "Apresentação",
     [UI_MENU_OV_TEX] = "Compressão de texturas", [UI_MENU_OV_OS] = "SO",
     [UI_MENU_OV_FMT_SIZE] = "%ux%u", [UI_MENU_OV_FMT_SCENE] = "%ux%u, %.0f%%",
-    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1, nitidez %d%%", [UI_MENU_OV_SCALE_NONE] = "nenhuma (1:1)",
-    [UI_MENU_OV_SCALE_BILINEAR] = "bilinear",
-    [UI_MENU_OV_FMT_AREA] = "média por área, nitidez %d%%",
+    [UI_MENU_OV_SCALE_FSR] = "AMD FSR 1", [UI_MENU_OV_SCALE_NONE] = "nenhuma (1:1)",
+    [UI_MENU_OV_SCALE_BILINEAR] = "bilinear", [UI_MENU_OV_SCALE_AREA] = "média por área",
+    [UI_MENU_OV_FMT_PRESHARP] = "%s; nitidez antes do HUD (%d%%)",
+    [UI_MENU_OV_FMT_SHARP_PRESENT] = "%s, nitidez %d%%",
     [UI_MENU_FOV] = "Campo de visão",
     [UI_MENU_FOV_DESC] = "Quanto do mundo a câmera mostra, em porcentagem do original do jogo (50 graus na vertical "
                          "durante o jogo). As cenas mantêm o enquadramento original.",
@@ -1316,14 +1312,10 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES] = "游戏分辨率",
     [UI_MENU_OUTPUT_RES_DESC] = "游戏绘制画面和界面的尺寸。1280 × 720 负担最轻，适合较弱的 GPU。高于 1920 × 1080 时，"
                                 "游戏需要更多内存（2560 × 1440 约多 240 MB，3840 × 2160 约多 790 MB）和 GPU 时间。"
-                                "自动：1920 × 1080；启用时间性超分辨率时则采用屏幕尺寸（2560 × 1440 或 3840 × 2160），"
-                                "让 DLSS 或 FSR 3 直接放大到屏幕，界面以完整分辨率绘制。重启后生效。",
+                                "自动：1920 × 1080；启用 DLAA 或时间性超分辨率时则采用屏幕尺寸（2560 × 1440 或 "
+                                "3840 × 2160），让 DLAA 以屏幕分辨率运行、DLSS 或 FSR 3 直接放大到屏幕，界面以完整分辨率"
+                                "绘制。重启后生效。",
     [UI_MENU_OUTPUT_RES_AUTO] = "自动",
-    [UI_MENU_UPSCALER] = "放大到窗口",
-    [UI_MENU_UPSCALER_DESC] = "画面缩放到窗口的方式。"
-                              "FSR 比双线性更能保留边缘和细节，即使画面已与窗口同样大小也会锐化。",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1",
-    [UI_MENU_UPSCALER_BILINEAR] = "双线性",
     [UI_MENU_ASPECT] = "画面宽高比",
     [UI_MENU_ASPECT_DESC] = "当窗口宽高比和游戏分辨率不同时（21:9 屏幕上显示 16:9 画面）："
                             "用黑边保持画面比例，或拉伸铺满窗口。",
@@ -1673,10 +1665,12 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_OV_OS] = "操作系统",
     [UI_MENU_OV_FMT_SIZE] = "%ux%u",
     [UI_MENU_OV_FMT_SCENE] = "%ux%u，%.0f%%",
-    [UI_MENU_OV_FMT_FSR] = "AMD FSR 1，锐度 %d%%",
+    [UI_MENU_OV_SCALE_FSR] = "AMD FSR 1",
     [UI_MENU_OV_SCALE_NONE] = "无（1:1）",
     [UI_MENU_OV_SCALE_BILINEAR] = "双线性",
-    [UI_MENU_OV_FMT_AREA] = "面积平均，锐度 %d%%",
+    [UI_MENU_OV_SCALE_AREA] = "面积平均",
+    [UI_MENU_OV_FMT_PRESHARP] = "%s；HUD 前锐化（%d%%）",
+    [UI_MENU_OV_FMT_SHARP_PRESENT] = "%s，锐度 %d%%",
     [UI_MENU_SHADOW_RES] = "阴影贴图尺寸",
     [UI_MENU_SHADOW_RES_DESC] = "太阳阴影贴图的尺寸。游戏自身的尺寸随视角变化，靠近地面时降到约 400，因此树叶阴影显得块状并且跳动；固定尺寸能让阴影稳定、更清晰。高于 1024 时阴影会占用更多 "
                                 "GPU 时间和显存。",

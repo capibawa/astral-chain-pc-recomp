@@ -3,7 +3,9 @@
 // window's size (output_res = 2560x1440 on a 1440p screen) gets RCAS alone. A larger one (2160p on a 1440p screen) is
 // reduced by an area average (runtime/shaders/downscale.comp) in EASU's place, then sharpened by RCAS: EASU and the
 // bilinear blit read only the texels around each pixel's centre and would throw part of the supersampling away.
-// AC_UPSCALER=fsr|bilinear picks it, AC_SHARPNESS (0..100, 0 = no RCAS pass) sets RCAS; both apply at the next frame.
+// It always runs where FSR's pipelines exist (AC_UPSCALER=bilinear, a test knob, blits instead); AC_SHARPNESS (0..100,
+// 0 = no RCAS pass) sets RCAS at the next frame. While DLAA, DLSS or FSR 3 sharpened the scene before the HUD
+// (vk_dlaa_presharpened), RCAS is left out here.
 //
 // Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
 // writes an RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars,
@@ -112,9 +114,18 @@ static int sharpness(void) {
     return s < 0 ? 0 : s > 100 ? 100 : s;
 }
 
+// AC_UPSCALER=bilinear (environment only, a test knob: vk_exec_probe.c's exact colour check): the plain blit, no FSR.
+// The setting it was is gone; cfg.c migrate_upscaler reads an old upscaler = bilinear line as sharpness = 0.
+static int bilinear(void) {
+    const char *u = cfg_get("AC_UPSCALER");
+    return u && !strcmp(u, "bilinear");
+}
+
+int vk_fsr_rcas_on(void) { return sharpness() > 0 && !bilinear() && ready(vk_ctx()); }
+
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h) {
     int sharp = sharpness();
-    if (strcmp(cfg_value("AC_UPSCALER"), "fsr") || !sharp || !ready(vk_ctx())) return 0;
+    if (!vk_fsr_rcas_on()) return 0;
     float rcas[8] = {(float)w, (float)h, (float)(100 - sharp) / 50.0f, 0, 0, 0, 0, 0};
     bind_pass(cb, F.rcas, src, dst, rcas);
     vkCmdDispatch(cb, (w + 15) / 16, (h + 15) / 16, 1);
@@ -193,7 +204,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
                   VkImage dst, const int out[4]) {
     int cw = crop[2], ch = crop[3];
     uint32_t dw = (uint32_t)out[2], dh = (uint32_t)out[3];
-    if (strcmp(cfg_value("AC_UPSCALER"), "fsr") || !fmt) return 0;
+    if (bilinear() || !fmt) return 0;
     int down = dw < (uint32_t)cw || dh < (uint32_t)ch;   // a smaller window: the area downscale in EASU's place
     int same = dw + 2 >= (uint32_t)cw && dw <= (uint32_t)cw + 2 && dh + 2 >= (uint32_t)ch && dh <= (uint32_t)ch + 2;
     VkCtx *c = vk_ctx();
@@ -210,13 +221,16 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
         return 0;
     }
     int sharp = sharpness();
-    // DLSS or FSR 3 upscaling sharpened the scene before the game drew its HUD (vk_dlaa.c sharpen): at 1:1 the window
-    // only copies, so the HUD stays as the game drew it and the scene is not sharpened twice
-    static int copying;   // the last 1:1 frame was copied because the upscaler had sharpened it
-    int pre = same && vk_dlaa_presharpened();
-    if (pre != copying && same)
-        rt_log("vk: %dx%d at 1:1: %s", cw, ch, pre ? "copied, sharpened before the HUD" : "RCAS on the present");
-    if (same) copying = pre;
+    // DLAA, DLSS or FSR 3 sharpened the scene before the game drew its HUD (vk_dlaa.c sharpen, sharpen_native): the
+    // window scales without RCAS, or at 1:1 only copies, so the HUD stays as the game drew it and the scene is not
+    // sharpened twice
+    static int pre_seen;   // the last frame's state, for the log
+    int pre = vk_dlaa_presharpened();
+    if (pre != pre_seen)
+        rt_log("vk: %dx%d to %ux%u: %s", cw, ch, dw, dh,
+               pre ? (same ? "copied, sharpened before the HUD" : "scaled without RCAS, sharpened before the HUD")
+                   : "RCAS on the present");
+    pre_seen = pre;
     if (pre) sharp = 0;
     if (same && sharp == 0) return 0;   // nothing to do: the source and the window are the same size
     if (F.lcw != cw || F.lch != ch || F.ldw != dw || F.ldh != dh) {

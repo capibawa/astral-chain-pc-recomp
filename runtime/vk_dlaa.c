@@ -299,6 +299,9 @@ static struct {
     int ended;                   // this frame: the scene is drawn (jitter over)
     VkExecTarget comp;           // upscaling: this frame's composite (the scene after bloom, tonemap and grading)
     int comp_ok;
+    int post;                    // the scene is at the game's size this frame: sharpening waits for the composite
+    int sharp_done;              // this frame's scene was sharpened before its HUD (sharpen, sharpen_native)
+    int sharp_only;              // this frame: nothing temporal runs, but sharpening wants the frame's passes
     struct Size {                // a DLSS feature and its work images per scene size (dynamic resolution flips it)
         uint32_t w, h, ow, oh;   // render size, output size
         VkImage out, mv;
@@ -356,6 +359,7 @@ static struct {
 
 const VkTexImage *vk_dlaa_swap_img;
 VkImageView vk_dlaa_swap_view;
+int vk_dlaa_swap_same;
 
 // What runs, from anti_aliasing and upscaling (both live; cfg.c): DLAA (DLSS at the scene's own size) when anti_aliasing
 // is dlaa and DLSS can run, which takes precedence over upscaling; else the upscaling setting: dlss (where it can
@@ -498,39 +502,89 @@ static struct Size *size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_
     return e;
 }
 
-// Upscaling's sharpening: RCAS (vk_fsr.c vk_fsr_rcas, at the window setting's sharpness) on DLSS's or FSR 3's picture
-// before the game's scaling draw reads it, so the scene is sharpened and the HUD the game then draws over it is not. The
-// picture is the composite after tonemap and grading, which is what RCAS is made for. Returns the view the scaling draw
-// should read: the sharpened image, or out as it is (sharpness 0, bilinear, no FSR pipelines, no memory).
-static volatile int32_t presharp;   // vk_dlaa_presharpened: the last upscaled frame was sharpened here
+// ---------------------------------------------------------------- sharpening before the HUD
+// One RCAS (vk_fsr.c vk_fsr_rcas, at sharpness; 0 turns it off) on the scene after the game's tonemap and grading, the
+// range RCAS is made for, and before the game draws its HUD, so the HUD stays as the game drew it:
+// - DLSS or FSR 3 upscaling (sharpen): on the upscaler's picture, before the game's scaling draw reads it.
+// - DLAA, SMAA or nothing (sharpen_native): DLAA's own output is linear scene light, so for every mode at the game's
+//   size the sharpening waits for the composite (bloom, tonemap and grading into a target of the scene's size, with the
+//   scene depth) and runs as the next pass begins; from there to the frame's end every draw that samples the composite
+//   reads the sharpened copy instead (vk_dlaa_swap_same): SMAA's passes and the output pass the HUD is drawn over.
+// A frame sharpened here tells the present (vk_dlaa_presharpened, set at vk_dlaa_frame) to scale without RCAS or copy at
+// 1:1; a frame without the scene (the title, a load, a menu over no scene) is sharpened at the present as before.
+static void full_barrier(VkCommandBuffer cb);
+static volatile int32_t presharp;   // vk_dlaa_presharpened: the last frame was sharpened before its HUD
 
-static VkImageView sharpen(VkCommandBuffer cb, struct Size *e) {
-    if (!e->sharp) {
-        if (!image2d(e->ow, e->oh, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                     &e->sharp, &e->sharp_mem, &e->sharp_view)) {
-            if (e->sharp) vmaDestroyImage(vk_ctx()->vma, e->sharp, e->sharp_mem);
-            e->sharp = VK_NULL_HANDLE, e->sharp_view = VK_NULL_HANDLE;
-            __atomic_store_n(&presharp, 0, __ATOMIC_RELAXED);
-            return e->out_view;
-        }
-        VkImageMemoryBarrier2 ib = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                                    .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                    .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                    .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-                                    .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = e->sharp,
-                                    .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-        VkDependencyInfo di = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1,
-                               .pImageMemoryBarriers = &ib};
-        vkCmdPipelineBarrier2(cb, &di);
-    }
-    int done = vk_fsr_rcas(cb, e->out_view, e->sharp_view, e->ow, e->oh);
-    if (done != __atomic_load_n(&presharp, __ATOMIC_RELAXED))
-        rt_log("dlaa: %s %ux%u", done ? "RCAS sharpens the upscaled picture before the HUD," : "no RCAS before the HUD,",
-               e->ow, e->oh);
+static void presharp_set(int done) {
+    static int lines;
+    if (done != __atomic_load_n(&presharp, __ATOMIC_RELAXED) && lines < 20)   // menus flip it: the first few changes
+        lines++, rt_log("dlaa: %s", done ? "RCAS sharpens the scene before the HUD" : "RCAS on the present");
     __atomic_store_n(&presharp, done, __ATOMIC_RELAXED);
-    return done ? e->sharp_view : e->out_view;
+}
+
+// An RGBA16F storage image in GENERAL for RCAS to write (*img stays NULL when there is no memory for it).
+static int sharp_image(VkCommandBuffer cb, uint32_t w, uint32_t h, VkImage *img, VmaAllocation *mem, VkImageView *view) {
+    if (!image2d(w, h, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, img, mem,
+                 view)) {
+        if (*img) vmaDestroyImage(vk_ctx()->vma, *img, *mem);
+        *img = VK_NULL_HANDLE, *view = VK_NULL_HANDLE;
+        return 0;
+    }
+    VkImageMemoryBarrier2 ib = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                                .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = *img,
+                                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
+    VkDependencyInfo di = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1,
+                           .pImageMemoryBarriers = &ib};
+    vkCmdPipelineBarrier2(cb, &di);
+    return 1;
+}
+
+// Returns the view the scaling draw should read: the sharpened image, or out as it is.
+static VkImageView sharpen(VkCommandBuffer cb, struct Size *e) {
+    if (!vk_fsr_rcas_on() || (!e->sharp && !sharp_image(cb, e->ow, e->oh, &e->sharp, &e->sharp_mem, &e->sharp_view)))
+        return e->out_view;
+    D.sharp_done = vk_fsr_rcas(cb, e->out_view, e->sharp_view, e->ow, e->oh);
+    return D.sharp_done ? e->sharp_view : e->out_view;
+}
+
+// The composite's sharpened copy (sharpen_native), made again when the composite's size changes.
+static struct {
+    VkImage img;
+    VmaAllocation mem;
+    VkImageView view;
+    uint32_t w, h;
+} NS;
+
+static void native_free(void) {
+    const VkCtx *c = vk_ctx();
+    vk_queue_lock();   // the image may still be in flight (as free_size)
+    vkDeviceWaitIdle(c->device);
+    vk_queue_unlock();
+    if (NS.view) vkDestroyImageView(c->device, NS.view, NULL);
+    if (NS.img) vmaDestroyImage(c->vma, NS.img, NS.mem);
+    memset(&NS, 0, sizeof NS);
+}
+
+static VkImageView sharpen_native(VkExec *ex) {
+    const VkExecTarget *t = &D.comp;
+    if (!vk_fsr_rcas_on()) return VK_NULL_HANDLE;
+    if (NS.img && (NS.w != t->width || NS.h != t->height)) native_free();
+    if (!NS.img) {
+        if (!sharp_image(ex->cb, t->width, t->height, &NS.img, &NS.mem, &NS.view)) return VK_NULL_HANDLE;
+        NS.w = t->width, NS.h = t->height;
+    }
+    vk_exec_barrier(ex);   // the composite's draws are done (no pass is open here)
+    VkImageView cv = vk_exec_target_view(t->img, t->format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, t->level,
+                                         t->base_layer, 1, 0);
+    if (!(D.sharp_done = vk_fsr_rcas(ex->cb, cv, NS.view, t->width, t->height))) return VK_NULL_HANDLE;
+    full_barrier(ex->cb);
+    vk_exec_draw_new_cb();   // a compute pipeline and push descriptors of its own: the next draw binds everything again
+    return NS.view;
 }
 
 int vk_dlaa_presharpened(void) { return __atomic_load_n(&presharp, __ATOMIC_RELAXED); }
@@ -1159,8 +1213,6 @@ static void evaluate(VkExec *ex, const VkExecTarget *src, const VkExecTarget *ds
     if (up && from == e->out) {   // not over a debug view
         pic = sharpen(cb, e);
         if (pic != e->out_view) full_barrier(cb);
-    } else if (up) {
-        __atomic_store_n(&presharp, 0, __ATOMIC_RELAXED);
     }
     if (up) vk_dlaa_swap_img = t->img, vk_dlaa_swap_view = pic;   // the scaling draw reads DLSS's picture
     ex->recorded += 4;
@@ -1190,9 +1242,36 @@ static int scene_depth(const VkExecTarget *z) {
     return z->image && z->width >= o[0] / 3 && (z->format == VK_FORMAT_D32_SFLOAT_S8_UINT || z->format == VK_FORMAT_D32_SFLOAT);
 }
 
+// The scene at the game's size (D.post: DLAA in place, SMAA or nothing): the composite, a pass at the light target's
+// size into one HDR-format target with the scene depth; at the first other pass after it, the sharpening (the comment
+// above presharp). A later pass that draws into the composite again ends the swap, so it only ever stands in for the
+// picture it was made from.
+static void native_post(VkExec *ex, const VkExecTarget *c, const VkExecTarget *z) {
+    if (ex->pass_ncolor == 1 && c->image && scene_color(c->format) && z->image == D.depth.image &&
+        c->width == D.color.width && c->height == D.color.height && c->samples <= 1 && !c->is3d) {
+        D.comp = *c, D.comp_ok = 1;
+        return;
+    }
+    if (!D.comp_ok) return;
+    D.post = 0;
+    VkImageView v = sharpen_native(ex);
+    if (v) vk_dlaa_swap_img = D.comp.img, vk_dlaa_swap_view = v, vk_dlaa_swap_same = 1;
+}
+
 void vk_dlaa_pass(VkExec *ex) {
     const VkExecTarget *c = &ex->color[0], *z = &ex->depth;
-    if (!dl_active() || D.done) return;
+    if (vk_dlaa_swap_same && D.comp.image)   // the composite drawn into again: its sharpened copy is stale
+        for (int i = 0; i < ex->pass_ncolor; i++)
+            if (ex->color[i].image == D.comp.image) {
+                vk_dlaa_swap_same = 0, vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE;
+                break;
+            }
+    int active = dl_active();
+    if (!active && !D.sharp_only) return;
+    if (D.done) {
+        if (D.post) native_post(ex, c, z);
+        return;
+    }
     // The depth prepass: no colour target, a D32F(S8) depth of a scene's width. Only light-target passes after it arm the
     // frame, so nothing drawn ahead of the scene can. The shadow map passes look the same; they fall between light-target
     // passes, so they leave the armed pair as it is.
@@ -1213,7 +1292,14 @@ void vk_dlaa_pass(VkExec *ex) {
     if (!D.ended) {
         if (!ex->pass_w || ex->pass_w * 4 > D.color.width) return;
         D.ended = 1;
-        if (!target_scaled(D.color.width)) D.done = 1, evaluate(ex, NULL, NULL);   // DLAA in place; else wait for the scaling pass
+        // DLAA in place (or, with nothing temporal, nothing), then the sharpening after the composite; else wait for
+        // the scaling pass
+        if (!active) {
+            D.done = D.post = 1, D.comp_ok = 0;
+        } else if (!target_scaled(D.color.width)) {
+            D.done = 1, evaluate(ex, NULL, NULL);
+            D.post = !D.failed, D.comp_ok = 0;
+        }
         return;
     }
     // upscaling: the composite, a pass at the light target's size into one HDR-format target with the scene depth
@@ -1265,10 +1351,14 @@ static void dlss_mode(int taa, const char *want) {
 }
 
 void vk_dlaa_frame(void) {
-    vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE;
+    vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE, vk_dlaa_swap_same = 0;
     const char *want;
     int taa = taa_pick(&want), native = !strcmp(want, "dlaa");
-    if (taa == TAA_NONE || native) __atomic_store_n(&presharp, 0, __ATOMIC_RELAXED);   // nothing upscales: the window sharpens
+    // the frame that ends here was sharpened before its HUD, or the present sharpens it; then the next frame starts
+    presharp_set(D.sharp_done);
+    D.sharp_done = 0;
+    D.sharp_only = taa == TAA_NONE && vk_fsr_rcas_on();   // SMAA or nothing: the passes are watched for sharpening
+    if (!D.sharp_only && !dl_active()) D.post = 0;
     dlss_mode(taa, want);
     if (N.available) preset_check();
     int fsr3 = taa == TAA_FSR3, on = taa != TAA_NONE;
@@ -1277,17 +1367,20 @@ void vk_dlaa_frame(void) {
         D.on = on, D.fsr3 = fsr3, D.native = native;
         // either way the next DLAA frame starts a new history from an unjittered frame
         D.reset = 1, D.cam_prev_ok = D.view_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;
-        D.comp_ok = 0;
+        D.comp_ok = D.post = 0;
         D.hold = 0, D.gap = 0;
         return;
     }
-    if (!dl_active()) return;
+    if (!dl_active()) {   // nothing temporal: only the sharpening's state (vk_dlaa_pass with D.sharp_only)
+        D.armed = D.done = D.gbuf = D.ended = D.comp_ok = D.post = 0;
+        return;
+    }
     if (!D.done) D.frames_missed++;
     D.gap = D.done ? 0 : D.gap + 1;   // evaluate resets the history after GAP_PRESENTS of these
     if (D.jit_used && !D.done) D.hold = 60, D.holds++;   // jittered but not resolved: that frame shook
     else if (D.hold) D.hold--;
     if (!D.done) D.jit_ok = 0;
-    D.armed = D.done = D.jit_used = D.gbuf = D.ended = D.comp_ok = 0;
+    D.armed = D.done = D.jit_used = D.gbuf = D.ended = D.comp_ok = D.post = 0;
     D.cam_addr = 0;
     memset(D.cams, 0, sizeof D.cams);
 }

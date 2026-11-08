@@ -649,7 +649,7 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     VkImage psrc = graded ? graded : src;
     VkFormat pfmt = graded ? VK_FORMAT_R16G16B16A16_SFLOAT : fmt;
     const int *prect = graded ? grect : rect;
-    // FSR (AC_UPSCALER) when the picture's rectangle is larger than the crop; else the bilinear blit
+    // FSR 1 (vk_fsr.c) unless the picture's rectangle is the crop's size with nothing to sharpen; else the blit
     int fsr = general ? vk_fsr_record(cb, slot, psrc, pfmt, graded ? cw : w, graded ? ch : h, prect, dst, to) : 0;
     g_scaler = fsr == 2 ? 3 : fsr ? 2 : cw != to[2] || ch != to[3];
     if (!fsr) {

@@ -276,7 +276,7 @@ void res_heapdef_served(void);                             // romfs.c serves the
 void res_init(void);                                       // after rt_patches_init: the patch page and the sets
 float res_dlss_lod_bias(void);                             // while upscaling: texture LOD bias (<= 0)
 int res_dlss_mode(const char *mode);                       // upscaling changed while running: new scene size
-int res_upscaling_at_start(void);                          // the settings at start upscale a smaller scene
+int res_temporal_at_start(void);                           // the settings at start run DLAA or upscale a smaller scene
 const char *res_output_asked(void);                        // output_res as read at start ("" before; may be "auto")
 void res_sizes(unsigned out[2], unsigned scene[2]);      // the output and scene sizes in effect (the game's own
                                                            // until res_init switched the sets on)

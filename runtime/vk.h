@@ -111,9 +111,9 @@ void vk_present_blit(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int
 int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
                   VkImage dst, const int out[4]);
 // RCAS alone, from src (sampled) into dst (an RGBA16F storage view), both w x h and in GENERAL, on any command buffer
-// (vk_dlaa.c sharpens DLSS / FSR 3 upscaling with it before the HUD). 1 = recorded; 0 = nothing (sharpness 0, the
-// window setting says bilinear, or FSR is not available).
+// (vk_dlaa.c sharpens DLAA, DLSS and FSR 3 with it before the HUD). 1 = recorded; 0 = nothing (vk_fsr_rcas_on is 0).
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h);
+int vk_fsr_rcas_on(void);   // sharpness above 0, FSR's pipelines made and not the AC_UPSCALER=bilinear test knob
 void vk_fsr_release(void);   // before the device goes away
 // Colour adjustment on the present (vk_color.c): with AC_COLOR_* away from their defaults, records a pass that writes
 // src's crop rectangle {x, y, w, h}, adjusted, into an RGBA16F image of that size in GENERAL and returns it (the caller

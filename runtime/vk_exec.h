@@ -185,6 +185,9 @@ void vk_c0_fill(uint8_t bank[VK_C0_BYTES], int stage, const p_bind_buf ssbo[16],
 // sample DLSS's output vk_dlaa_swap_view in its place, so the game's scaling draw scales DLSS's picture.
 extern const VkTexImage *vk_dlaa_swap_img;
 extern VkImageView vk_dlaa_swap_view;
+// DLAA's sharpening: set for the game's output pass alone, which samples the sharpened composite although it is the
+// composite's size (the size test above is skipped); the next pass clears it (vk_dlaa_pass).
+extern int vk_dlaa_swap_same;
 
 // Handler hooks. vk_exec.c defines both WEAK: they stop with rt_fatal naming the op.
 // vk_exec_draw.c: OP_DRAW, OP_DRAW_IDX, OP_DISPATCH, OP_BIND_* (program, state, vattr, vstream, vbuf, ubo, ssbo, tex,

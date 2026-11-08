@@ -158,17 +158,19 @@
 # most the application pool leaves room for (1600x900, 2560x1440 and 3200x1800 among them); another size keeps
 # 1920x1080, as other shapes and sizes off that grid lose the GPU device. Above 1920x1080's pixel count the game's
 # render-target budget grows with the pixels (310 MiB up to 1920x1080, 545 MiB at 2560x1440, 1100 MiB at 3840x2160) and
-# the application pool with it. auto is 1920x1080 unless temporal upscaling runs from the start; then it is 2560x1440
-# or 3840x2160, the largest the screen holds, so DLSS or FSR 3 scales the scene straight to the screen's size, the HUD is
-# drawn at it and the window only copies the picture. It replaces the former ssaa setting, which enlarged the game's
-# 1080p render targets from outside the game; an ssaa = 1440p, 2160p or auto line is read as output_res = 2560x1440,
-# 3840x2160 or auto. Read at start.
+# the application pool with it. auto is 1920x1080 with SMAA or no anti-aliasing; with DLAA or temporal upscaling from
+# the start it is 2560x1440 or 3840x2160, the largest the screen holds, so DLAA anti-aliases at the screen's size, DLSS
+# or FSR 3 scale the scene straight to it, the HUD is drawn at it and the window only copies the picture. DLAA at
+# 3840x2160 is the most demanding choice. It replaces the former ssaa setting, which enlarged the game's 1080p render
+# targets from outside the game; an ssaa = 1440p, 2160p or auto line is read as output_res = 2560x1440, 3840x2160 or
+# auto. Read at start.
 # output_res = 1920x1080
-# Scaling to the window when it is larger than the game resolution: fsr (AMD FSR 1) or bilinear, and FSR's sharpening
-# (RCAS) from 0 (off) to 100. While DLSS or FSR 3 upscales, the sharpening runs on the 3D scene before the game draws its
-# HUD, and a picture of the window's size is copied unsharpened. Changes while the game runs take effect at once.
-# upscaler = fsr
-# sharpness = 80
+# Sharpening (AMD RCAS) of the 3D scene from 0 (off: no RCAS pass at all) to 100; 50 is the default. In every
+# anti-aliasing and upscaling mode it runs after the game's tonemap and before it draws its HUD, so the HUD stays crisp;
+# screens without the 3D scene (the title, loads) are sharpened as AMD FSR 1 fits them to the window. The window step
+# scales with FSR 1 when the picture is not the window's size and copies it otherwise. Changes while the game runs take
+# effect at once. An upscaler = bilinear line from an older version is read as sharpness = 0.
+# sharpness = 50
 # Picture shape when the window's shape differs from the game resolution's (a 16:9 picture in a 21:9 fullscreen
 # window): fit, the default, keeps the shape, with black bars at the sides or above and below, so a 16:9 game in a wider
 # window is no longer stretched as it used to be; stretch fills the window. Changes while the game runs take effect at

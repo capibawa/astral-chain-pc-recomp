@@ -48,6 +48,7 @@ extern "C" {
 // runtime/vk_dlaa.h, which pulls in Vulkan: what the anti-aliasing rows need of it
 int vk_dlaa_dlss_state(void);
 int vk_dlaa_running(void);
+int vk_dlaa_presharpened(void);
 enum { VK_TAA_NONE, VK_TAA_DLAA, VK_TAA_DLSS, VK_TAA_FSR3 };
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -611,8 +612,9 @@ static const char *present_note(void) {
 // Anti-aliasing and temporal upscaling (runtime/vk_dlaa.c taa_pick decides what runs from these). DLAA and DLSS are
 // offered where DLSS can run, or may after a restart (NGX is loaded only when a setting at start asks for it); where it
 // cannot, a stored dlaa shows as SMAA and a stored dlss as Off, which is what runs. DLAA takes precedence: upscaling is
-// greyed out under it and shows DLSS, which DLAA runs at full resolution. The quality row needs the scene patch set (recomp/patches-v101.txt) and upscaling on; the DLSS
-// model and trails rows show while DLAA or DLSS runs.
+// greyed out under it and shows DLSS, which DLAA runs at full resolution. The quality row needs the scene patch set
+// (recomp/patches-v101.txt) and upscaling on; sharpness follows it in every mode; the DLSS model and trails rows show
+// while DLAA or DLSS runs.
 static void rows_antialiasing(void) {
     int dlss = vk_dlaa_dlss_state(), run = vk_dlaa_running();
     const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
@@ -644,6 +646,8 @@ static void rows_antialiasing(void) {
                                      UI_MENU_DLSS_ULTRA};
         opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC);
     }
+    // RCAS before the HUD in every mode, or on the present for frames without the scene (vk_dlaa.c presharp)
+    opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
     if (run == VK_TAA_DLAA || run == VK_TAA_DLSS) {
         static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
         opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
@@ -695,9 +699,6 @@ static void tab_screen(float scale) {
     opt_group(UI_MENU_GRAPHICS);
     row_output_res();
     if (rt_patch_set("shadow") >= 0) row_shadow_res();
-    static const UiTextId up[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
-    opt_choice("AC_UPSCALER", UI_MENU_UPSCALER, up, 2, UI_MENU_UPSCALER_DESC);
-    opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
     static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
     opt_choice("AC_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
     opt_slider("AC_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
@@ -1196,13 +1197,20 @@ static void perf_picture(const MenuTarget *t, const ImVec4 &c, const PerfStats &
     snprintf(v[0], sizeof v[0], menu_text(UI_MENU_OV_FMT_SIZE), t->width, t->height);
     snprintf(v[1], sizeof v[1], menu_text(UI_MENU_OV_FMT_SIZE), (unsigned)t->image_w, (unsigned)t->image_h);
     snprintf(v[2], sizeof v[2], menu_text(UI_MENU_OV_FMT_SCENE), rw, rh, rw * 100.0 / out[0]);
-    if (t->scaler >= 2) {
-        int s = cfg_int("AC_SHARPNESS");
-        snprintf(v[3], sizeof v[3], menu_text(t->scaler == 3 ? UI_MENU_OV_FMT_AREA : UI_MENU_OV_FMT_FSR),
-                 s < 0 ? 0 : s > 100 ? 100 : s);
-    } else {
-        snprintf(v[3], sizeof v[3], "%s", menu_text(t->scaler ? UI_MENU_OV_SCALE_BILINEAR : UI_MENU_OV_SCALE_NONE));
-    }
+    // how the present scales (t->scaler: 0 none, 1 bilinear, 2 FSR 1, 3 area average) and where RCAS ran: before the
+    // HUD (vk_dlaa.c presharp; the present then leaves it out) or on the present
+    int sharp = cfg_int("AC_SHARPNESS");
+    sharp = sharp < 0 ? 0 : sharp > 100 ? 100 : sharp;
+    const char *how = menu_text(t->scaler == 3   ? UI_MENU_OV_SCALE_AREA
+                                : t->scaler == 2 ? UI_MENU_OV_SCALE_FSR
+                                : t->scaler      ? UI_MENU_OV_SCALE_BILINEAR
+                                                 : UI_MENU_OV_SCALE_NONE);
+    if (sharp && vk_dlaa_presharpened())
+        snprintf(v[3], sizeof v[3], menu_text(UI_MENU_OV_FMT_PRESHARP), how, sharp);
+    else if (sharp && t->scaler >= 2)
+        snprintf(v[3], sizeof v[3], menu_text(UI_MENU_OV_FMT_SHARP_PRESENT), how, sharp);
+    else
+        snprintf(v[3], sizeof v[3], "%s", how);
     double hz = frame_step_limit_hz();
     snprintf(v[4], sizeof v[4], "%s", menu_text(UI_MENU_OV_NONE));
     if (hz > 0) snprintf(v[4], sizeof v[4], menu_text(UI_MENU_OV_FPS), hz);
