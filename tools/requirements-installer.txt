@@ -1,6 +1,6 @@
 # Packages of the release's bundled Python 3.14.9 (tools/make_release.py): what the installer steps import.
 # numpy: recomp/gen.py. lz4: recomp/nso.py, tools/shader_census.py. cryptography, cffi, pycparser: tools/extract.py and the vendored extract scripts.
-# zstandard: tools/make_prompts_folders.py (the button-prompts overlays).
+# zstandard (and numpy): tools/make_prompts_folders.py (the button-prompts overlays).
 numpy==2.5.4
 lz4==4.4.5
 cryptography==50.0.2

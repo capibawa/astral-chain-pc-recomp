@@ -30,7 +30,7 @@ Report problems as issues, following [CONTRIBUTING.md](CONTRIBUTING.md).
 - In-game settings menu (F1) and performance overlay (F10)
 - Setup and in-game menu in English, Russian, Brazilian Portuguese and Simplified Chinese
 - Keyboard, mouse and gamepad, with remapping, rumble and gyro
-- Xbox and PlayStation button prompts (button mods drawn at the Switch positions; PlayStation mod from https://gamebanana.com/mods/604666)
+- Xbox and PlayStation button prompts, redrawn from the game's own at install, matching the button layout
 - Mods and data cheats from the emulator formats
 - Shaders prepared at install instead of during play
 

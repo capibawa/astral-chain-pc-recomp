@@ -241,13 +241,18 @@ def write_if_changed(path, text):
     path.write_text(text, encoding='utf-8', newline='\n')   # Ninja and clang read UTF-8; paths may be non-ASCII
 
 
+# The button-prompts folders tools/make_prompts_folders.py writes (FOLDERS there; runtime/input_map.c
+# input_prompts_folder names them).
+PROMPTS_FOLDERS = ('romfs-patches-xbox', 'romfs-patches-xbox-label', 'romfs-patches-playstation',
+                   'romfs-patches-playstation-label')
+
+
 def copy_romfs_patches(version, out):
     """astralchain.exe loads romfs-patches beside romfs-index.bin (runtime/romfs.c overlay_init). tools/make_romfs_patches.py
     writes them into build/<version> only, so a build in another directory ran without the 60 fps overlay (the quick
-    menus' captured background turned black). Copies them when their manifest differs; romfs-patches-xbox and
-    romfs-patches-playstation (the button mods, tools/make_prompts_folders.py --prompts) the same way when
-    they were made."""
-    for name in ('romfs-patches', 'romfs-patches-xbox', 'romfs-patches-playstation'):
+    menus' captured background turned black). Copies them when their manifest differs; the button-prompts folders
+    (tools/make_prompts_folders.py) the same way when they were made."""
+    for name in ('romfs-patches', *PROMPTS_FOLDERS):
         src = ROOT / 'build' / version / name
         dst = out / name
         if src.resolve() == dst.resolve() or not (src / 'manifest.tsv').is_file():

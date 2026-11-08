@@ -93,7 +93,8 @@ def main():
         else:
             print(f'package_build: {f} not in {build}, skipped')
     n = copy_tree(build / 'romfs-patches', out / 'romfs-patches')
-    for name in ('romfs-patches-xbox', 'romfs-patches-playstation'):   # prompts = xbox/playstation
+    for name in ('romfs-patches-xbox', 'romfs-patches-xbox-label', 'romfs-patches-playstation',
+                 'romfs-patches-playstation-label'):   # prompts = xbox/playstation (tools/make_prompts_folders.py)
         if (build / name).is_dir():
             n += copy_tree(build / name, out / name)
     n += copy_tree(exefs, out / 'exefs')
