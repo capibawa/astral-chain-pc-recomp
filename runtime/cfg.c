@@ -58,6 +58,8 @@ static const char *const known[] = {
     "VK_PRESENT", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VOLUME", "VRAM_HEADROOM", "VS_OUTS",
     "WALK_KEY", "WALK_SCALE", "WB_EXACT", "WB_FENCE_LIMIT", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_PROCS",
     "ZSTD_CHECK", "ZSTD_NATIVE",
+    "ANTI_ALIASING", "UPSCALING", "UPSCALING_QUALITY",
+    "TEMPORAL_UPSCALER" /* with DLAA, DLSS and SMAA: the old anti-aliasing keys (migrate_aa) */,
 };
 
 // The astralchain.ini section a key cfg_set may write goes to when the file lacks it (astralchain.ini.example's sections).
@@ -71,7 +73,8 @@ static const struct { const char *key, *section; } sections[] = {
     {"COLOR_BRIGHTNESS", "display"}, {"COLOR_CONTRAST", "display"}, {"COLOR_SATURATION", "display"},
     {"COLOR_GAMMA", "display"}, {"HDR", "display"}, {"HDR_PEAK_NITS", "display"}, {"HDR_GAME_NITS", "display"},
     {"HDR_UI_NITS", "display"}, {"HDR_HUE", "display"}, {"SHADOW_RES", "display"},
-    {"DLAA", "display"}, {"DLSS", "display"}, {"DLSS_PRESET", "display"}, {"DLSS_CHAR_MASK", "display"}, {"SMAA", "display"},
+    {"ANTI_ALIASING", "display"}, {"UPSCALING", "display"}, {"UPSCALING_QUALITY", "display"},
+    {"DLSS_PRESET", "display"}, {"DLSS_CHAR_MASK", "display"},
     {"DEVICE_PROFILE", "display"}, {"DECK_RES_MIGRATED", "display"}, {"ASSUME_FOCUS", "display"},
     {"SHADOW_SCALE", "display"}, {"SHADOW_RANGE", "display"}, {"CONTACT_SHADOWS", "display"},
     {"PCSS", "display"},
@@ -114,10 +117,11 @@ static const CfgMeta metas[] = {
     // the size the game renders itself (resolution.c: TotK's output set, or on 1.0.1 the res set, res_pick)
     {"OUTPUT_RES", "1920x1080", NULL, RESTART}, {"RENDER_SCALE", "game", "game|50|67|75|100|125|150|200", RESTART},
     {"UPSCALER", "fsr", "fsr|bilinear", LIVE}, {"SHARPNESS", "80", "0..100", LIVE},
-    {"DLAA", "0", "0|1", RESTART}, {"DLSS", "dlaa", "dlaa|quality|balanced|performance|ultra_performance", LIVE},
-    {"TEMPORAL_UPSCALER", "auto", "auto|dlss|fsr3", LIVE},
+    // anti-aliasing and temporal upscaling (vk_dlaa.c taa_pick); DLSS needs NGX, loaded at start when one of them can
+    // ask for it (vk_dlaa_wanted), so a change that first asks for DLSS takes effect after a restart
+    {"ANTI_ALIASING", "smaa", "off|smaa|dlaa", LIVE}, {"UPSCALING", "off", "off|auto|dlss|fsr3", LIVE},
+    {"UPSCALING_QUALITY", "quality", "quality|balanced|performance|ultra_performance", LIVE},
     {"DLSS_PRESET", "default", "default|k|j", LIVE}, {"DLSS_CHAR_MASK", "0", "0|35|65|100", LIVE},
-    {"SMAA", "1", "0|1", LIVE},
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     {"ANISO", "auto", "auto|game|2|4|8|16", RESTART},   // vk_texture.c sampler_features
     // colour adjustment (vk_color.c); the preset is the menu's, the four values are what the present uses
@@ -276,10 +280,44 @@ static void migrate_smaa(void) {
     fxaa->value = NULL, fxaa->removed = 1;   // cfg_save_to deletes the fxaa line
 }
 
+static CfgEntry *entry(const char *key) {
+    for (int i = 0; i < n_entries; i++)
+        if (entries[i].value && !strcmp(entries[i].key, key)) return &entries[i];
+    return NULL;
+}
+
+static void put_new(const char *key, const char *value) {
+    if (n_entries < CFG_MAX_KEYS) entries[n_entries++] = (CfgEntry){strdup(key), strdup(value), 1, 0};
+}
+
+static void drop(CfgEntry *e) {   // cfg_save_to deletes the line
+    if (e) free(e->value), e->value = NULL, e->removed = 1;
+}
+
+// Anti-aliasing was dlaa (0|1, DLSS on), dlss (its mode: dlaa or a scene size), temporal_upscaler (auto|dlss|fsr3) and
+// smaa (0|1). Now anti_aliasing (off|smaa|dlaa), upscaling (off|auto|dlss|fsr3) and upscaling_quality. The old lines
+// are read as the new ones, which the next cfg_save writes in their place; a file with either new key keeps its own.
+static void migrate_aa(void) {
+    CfgEntry *dlaa = entry("DLAA"), *dlss = entry("DLSS"), *tu = entry("TEMPORAL_UPSCALER"), *smaa = entry("SMAA");
+    if (!dlaa && !dlss && !tu && !smaa) return;
+    if (!entry("ANTI_ALIASING") && !entry("UPSCALING")) {
+        int on = dlaa && atoi(dlaa->value) != 0, sm = !smaa || atoi(smaa->value) != 0;
+        const char *mode = dlss ? dlss->value : "dlaa";
+        int native = !strcasecmp(mode, "dlaa");
+        put_new("ANTI_ALIASING", on && native ? "dlaa" : sm ? "smaa" : "off");
+        put_new("UPSCALING", on && !native ? (tu ? tu->value : "auto") : "off");
+        if (!native && !entry("UPSCALING_QUALITY")) put_new("UPSCALING_QUALITY", mode);
+        rt_log("cfg: astralchain.ini dlaa, dlss, smaa and temporal_upscaler are read as anti_aliasing = %s, upscaling = %s",
+               on && native ? "dlaa" : sm ? "smaa" : "off", on && !native ? (tu ? tu->value : "auto") : "off");
+    }
+    drop(dlaa), drop(dlss), drop(tu), drop(smaa);
+}
+
 static void migrate(void) {
     migrate_ssaa();
     migrate_prompts();
     migrate_smaa();
+    migrate_aa();
 }
 
 int cfg_load(const char *path) {

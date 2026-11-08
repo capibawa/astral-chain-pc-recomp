@@ -134,7 +134,12 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   in-game menu is drawn into an RGBA8 image and blended on at the HUD's white. Without an HDR10 surface format
   (Windows with "Use HDR" off, a compositor without colour management) the swapchain stays SDR and the tonemap writes
   the game's own result. `AC_SHOTS` reads the window texture, so its pictures clip highlights in HDR.
-- DLAA (`vk_dlaa.c`, `dlaa`, off by default). NVIDIA DLSS at the scene's own size, through the driver's NGX core loaded
+- Anti-aliasing and temporal upscaling (`vk_dlaa.c` `taa_pick`): `anti_aliasing = off | smaa | dlaa` (default smaa)
+  and `upscaling = off | auto | dlss | fsr3` (default off) with `upscaling_quality`. DLAA takes precedence over upscaling
+  and falls back to SMAA where DLSS cannot run; auto is DLSS where it runs, FSR 3 elsewhere; SMAA runs only while
+  nothing temporal does. NGX is loaded at start only when one of them can ask for DLSS. Older `dlaa`, `dlss`, `smaa`
+  and `temporal_upscaler` lines are read as the new keys (`cfg.c` `migrate_aa`).
+- DLAA (`anti_aliasing = dlaa`). NVIDIA DLSS at the scene's own size, through the driver's NGX core loaded
   at run time (no SDK code compiled in; `_nvngx.dll` on Windows, `libnvidia-ngx.so.1` on Linux). It runs on the R11G11B10F light target at the bloom chain's third level, after
   the light target's last pass, so the composite, post effects and the HUD read the anti-aliased picture. The scene's
   draws get a sub-pixel Halton viewport jitter (16 phases for DLAA, 8 x the squared upscaling ratio otherwise); motion
@@ -151,32 +156,32 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   (default: NVIDIA's per mode, K for DLAA); `AC_DLAA_TIMES=1` logs its GPU and CPU cost and `AC_DLAA_MVDEBUG=1` shows
   the motion vectors in place of the picture. `dlss_char_mask` (off by default) adds DLSS's bias mask where pixels move
   on their own and where they were last frame. `AC_MV_CHECK=<frames>` measures how well the vectors explain the picture
-  (warp and end-point errors of the camera's and the final vectors). `smaa` switches the game's own SMAA (its edge,
-  weight and blending passes; an old `fxaa` line is read as `smaa`).
-- AMD FSR 3 (`runtime/vk_fsr3.c`, `temporal_upscaler = auto|dlss|fsr3`; auto takes FSR 3 where NGX is not up) runs at
-  the same point as DLSS on the same inputs: the jitter, the camera and per-object motion vectors, the resets and the
-  scene sizes of the `dlss` modes. Its passes are AMD's FSR 3.1.4 GLSL from the FidelityFX SDK v1.1.4, unmodified in
-  `runtime/shaders/ffx3` and compiled by `tools/build_shaders.py` into `runtime/fsr3_spv.h` (LDR and HDR variants);
+  (warp and end-point errors of the camera's and the final vectors). SMAA off skips the game's own SMAA (its edge
+  and weight passes; the blending pass then blends nothing).
+- AMD FSR 3 (`runtime/vk_fsr3.c`, `upscaling = fsr3`, or auto where DLSS cannot run) runs at the same point as DLSS on
+  the same inputs: the jitter, the camera and per-object motion vectors, the resets and the scene sizes of
+  `upscaling_quality`. Its passes are AMD's FSR 3.1.4 GLSL from the FidelityFX SDK v1.1.4, unmodified in
+  `runtime/shaders/ffx3` and compiled by `tools/build_shaders.py` into `runtime/fsr3_ldr_spv.h` and `fsr3_hdr_spv.h`;
   the host is our own: it makes AMD's internal images per render and output size, fills the constant blocks and records
   the seven passes (prepare inputs, luma pyramid, shading change pyramid, shading change, prepare reactivity, luma
   instability, accumulate) through the recorder. The camera's near and far planes and field of view come from the
   projection in the camera block. No reactive or transparency mask and no RCAS (DLSS runs unsharpened as well).
-- DLSS upscaling (`dlss = quality | balanced | performance | ultra_performance`, live, as in the TotK Recomp). The game
+- Upscaling (`upscaling_quality = quality | balanced | performance | ultra_performance`, live, as in the TotK Recomp). The game
   keeps three dynamic-resolution levels, each with its own scene targets, and draws its output and HUD at the render
-  size `res1080` sets. With DLSS able to run (`dlaa = 1`, `nvngx_dlss.dll` there) the `scene` patch set
-  (`recomp/patches-v101.txt`) gives every level the size `resolution.c` writes on the patch page: 1920x1080 for `dlaa`,
+  size `res1080` sets. With DLAA or an upscaler able to run from the settings at start the `scene` patch set
+  (`recomp/patches-v101.txt`) gives every level the size `resolution.c` writes on the patch page: 1920x1080 for DLAA and with upscaling off,
   1280x720, 1120x630, 960x540 or 640x360 for the others. The scene must be 32n x 18n both as the game sees it and after
   `ssaa`, or the first 3D frame loses the device, with or without DLSS evaluating (the failing pass is not identified:
   `resolution.c` `scene_for` lists the measured sizes). So at `ssaa = 1440p` the modes render 1248x702, 1152x648, 960x540
   and 672x378, and with `res1062` and `ssaa`, where no smaller size fits, DLSS runs as DLAA. A mode change in the menu
   makes the framework's per-frame window update (0x9db520), on the game's thread, write the new size and report a display
   change, so the game runs its own docked / handheld sequence, which rebuilds the scene targets at the next frame
-  (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). With `dlaa` switched off, NGX not up or DLSS failed in the
+  (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). With upscaling switched off, DLAA chosen, nothing able to run or DLSS failed in the
   run, the scene goes back to the game's size the same way. The whole scene chain, bloom and composite
-  included, then runs at that size and the game's SMAA blending pass scales it to the output. DLSS runs on the
-  composite at the begin of that pass, and the pass samples DLSS's output in the composite's place (`vk_dlaa_swap_img`);
+  included, then runs at that size and the game's SMAA blending pass scales it to the output. The upscaler runs on the
+  composite at the begin of that pass, and the pass samples its output in the composite's place (`vk_dlaa_swap_img`);
   SMAA is off meanwhile and material textures take a mip bias of log2(scene / output). `ssaa` multiplies both sizes
-  (2160p performance: 1920x1080 to 3840x2160). With `dlaa = 0` the set is off and the game renders as before.
+  (2160p performance: 1920x1080 to 3840x2160). With SMAA or nothing at start the set is off and the game renders as before.
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a
   compute shader everywhere else (`vk_astc.c`, `AC_ASTC`). A discrete GPU with 6 GB of video memory or more keeps

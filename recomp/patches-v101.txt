@@ -36,7 +36,7 @@ spin main 855894 855a50 855a64   # 36 instructions; loads
 spin main 87adb0 87ade8   # 14 instructions; loads
 spin main 9a8274 9a829c   # 5 instructions; loads
 
-# Scene size for the DLSS upscaling modes (runtime/resolution.c res_init, AC_DLSS quality/balanced/performance). The
+# Scene size for the upscaling modes (runtime/resolution.c res_init, AC_UPSCALING_QUALITY quality/balanced/performance). The
 # game keeps three dynamic-resolution levels, each with its own scene targets (light target, scene depth and the passes
 # sized from them), made by the function at 40fb60 (level, width, height); the per-frame selector at 4183a0 points the
 # renderer at one level's targets, and the output and HUD stay at the render size (4328c0, which res1080 / res1062

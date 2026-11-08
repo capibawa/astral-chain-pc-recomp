@@ -120,16 +120,27 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_SHADOW_RANGE_DESC] = "Moves the steps where shadows turn softer (the game's 20, 40, 80 and 160 m) further "
                                   "away. Spreads the shadow map over more ground: raise Shadow resolution with it. "
                                   "Takes effect at the next start.",
-    [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS for the 3D scene (NVIDIA RTX GPUs; nvngx_dlss.dll next to astralchain.exe), or AMD "
-                          "FSR 3 on any GPU (Upscaler below): smoother edges and less shimmer. The HUD is not touched. The "
-                          "mode below sets the resolution it works from. Takes effect after a restart.",
-    [UI_MENU_DLSS] = "DLSS mode",
-    [UI_MENU_DLSS_DESC] = "DLAA draws the 3D scene at full resolution. Quality, Balanced, Performance and Ultra "
-                          "Performance draw it at 67, 58, 50 and 33 % of the game resolution (times the 3D render "
-                          "scale) and let DLSS or FSR 3 scale it up, for more frames per second; the game's SMAA is "
-                          "off while they run. Needs the setting above on. Changes take effect at once.",
-    [UI_MENU_DLSS_DLAA] = "DLAA (native)", [UI_MENU_DLSS_QUALITY] = "Quality", [UI_MENU_DLSS_BALANCED] = "Balanced",
+    [UI_MENU_AA] = "Anti-aliasing",
+    [UI_MENU_AA_DESC] = "Smooths the edges of the 3D scene; the HUD is not touched. SMAA: the game's own. DLAA: NVIDIA "
+                        "DLSS at full resolution, smoother and steadier than SMAA (NVIDIA RTX GPUs with nvngx_dlss.dll "
+                        "next to astralchain.exe; not offered where it cannot run). Temporal upscaling, when on, "
+                        "replaces SMAA; DLAA replaces upscaling. Choosing DLAA for the first time takes effect after a "
+                        "restart.",
+    [UI_MENU_AA_OFF] = "Off", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
+    [UI_MENU_UPSCALING] = "Temporal upscaling",
+    [UI_MENU_UPSCALING_DESC] = "Draws the 3D scene at a lower resolution and scales it up with its edges smoothed, for "
+                               "more frames per second. Automatic: NVIDIA DLSS where it can run, AMD FSR 3 everywhere "
+                               "else. FSR 3 runs on any GPU; DLSS looks better where both run. The game's SMAA is off "
+                               "while it runs. Changes apply at once, except turning it on from Off, which takes effect "
+                               "after a restart.",
+    [UI_MENU_UPSCALING_OFF] = "Off", [UI_MENU_UPSCALING_AUTO] = "Automatic", [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS",
+    [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
+    [UI_MENU_UPSCALING_BY_DLAA] = "Not used with DLAA, which renders at full resolution",
+    [UI_MENU_UPSCALING_QUALITY] = "Upscaling quality",
+    [UI_MENU_UPSCALING_QUALITY_DESC] = "How much smaller the 3D scene is drawn: Quality, Balanced, Performance and Ultra "
+                                       "Performance draw it at 67, 58, 50 and 33 % of the game resolution (times the 3D "
+                                       "render scale). Lower is faster and softer. Applies at once.",
+    [UI_MENU_DLSS_QUALITY] = "Quality", [UI_MENU_DLSS_BALANCED] = "Balanced",
     [UI_MENU_DLSS_PERFORMANCE] = "Performance", [UI_MENU_DLSS_ULTRA] = "Ultra Performance",
     [UI_MENU_DLSS_PRESET] = "DLSS model",
     [UI_MENU_DLSS_PRESET_DESC] = "Which DLSS model runs. Automatic follows NVIDIA's advice per mode: K for DLAA, Quality "
@@ -143,14 +154,6 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                 "leaves those edges a little less smooth. Applies at once.",
     [UI_MENU_DLSS_CHARS_OFF] = "Off", [UI_MENU_DLSS_CHARS_LIGHT] = "Light", [UI_MENU_DLSS_CHARS_MEDIUM] = "Medium",
     [UI_MENU_DLSS_CHARS_FULL] = "Full",
-    [UI_MENU_TEMPORAL] = "Upscaler",
-    [UI_MENU_TEMPORAL_DESC] = "What anti-aliases and scales the 3D scene when the setting above is on. Automatic: NVIDIA "
-                              "DLSS where it can run, AMD FSR 3 everywhere else. FSR 3 runs on any GPU; DLSS looks "
-                              "better where both run. The mode above applies to both. Changes take effect at once.",
-    [UI_MENU_TEMPORAL_AUTO] = "Automatic", [UI_MENU_TEMPORAL_DLSS] = "NVIDIA DLSS", [UI_MENU_TEMPORAL_FSR3] = "AMD FSR 3",
-    [UI_MENU_SMAA] = "Game anti-aliasing (SMAA)",
-    [UI_MENU_SMAA_DESC] = "The game's own SMAA edge smoothing. With DLAA on it is not needed, and off saves its three "
-                          "passes.",
 
     [UI_MENU_FPS_LIMIT] = "Frame rate",
     [UI_MENU_FPS_LIMIT_DESC] = "60 FPS runs the game's 60 fps patch; 30 FPS switches it off. Read live.",
@@ -523,16 +526,7 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_SHADOW_RANGE_DESC] = "Отодвигает границы, за которыми тени становятся мягче (в игре 20, 40, 80 и 160 м). "
                                   "Карта теней растягивается на большую площадь, поэтому вместе с этим поднимайте "
                                   "разрешение теней. Действует после перезапуска.",
-    [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS для 3D-сцены (видеокарты NVIDIA RTX; nvngx_dlss.dll рядом с astralchain.exe): ровнее края и "
-                          "меньше мерцания. Интерфейс не затрагивается. Режим ниже задаёт разрешение, с которым он работает. "
-                          "Действует после перезапуска.",
-    [UI_MENU_DLSS] = "Режим DLSS",
-    [UI_MENU_DLSS_DESC] = "DLAA рисует 3D-сцену в полном разрешении. «Качество», «Баланс», «Производительность» и "
-                          "«Макс. производительность» рисуют её в 67, 58, 50 и 33 % игрового разрешения (с учётом "
-                          "масштаба 3D-отрисовки) и масштабируют через DLSS ради большего числа кадров; SMAA игры при "
-                          "этом выключен. Нужен включённый NVIDIA DLSS. Действует сразу.",
-    [UI_MENU_DLSS_DLAA] = "DLAA (родное)", [UI_MENU_DLSS_QUALITY] = "Качество", [UI_MENU_DLSS_BALANCED] = "Баланс",
+    [UI_MENU_DLSS_QUALITY] = "Качество", [UI_MENU_DLSS_BALANCED] = "Баланс",
     [UI_MENU_DLSS_PERFORMANCE] = "Производительность", [UI_MENU_DLSS_ULTRA] = "Макс. производительность",
     [UI_MENU_DLSS_PRESET] = "Модель DLSS",
     [UI_MENU_DLSS_PRESET_DESC] = "Какая модель DLSS работает. «Автоматически» следует совету NVIDIA для каждого режима: K "
@@ -547,8 +541,6 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                 "чуть менее гладкие края. Действует сразу.",
     [UI_MENU_DLSS_CHARS_OFF] = "Выкл.", [UI_MENU_DLSS_CHARS_LIGHT] = "Слабо", [UI_MENU_DLSS_CHARS_MEDIUM] = "Средне",
     [UI_MENU_DLSS_CHARS_FULL] = "Полностью",
-    [UI_MENU_SMAA] = "Сглаживание игры (SMAA)",
-    [UI_MENU_SMAA_DESC] = "Собственное сглаживание SMAA. С DLAA оно не нужно, а выключенное экономит три его прохода.",
 
     [UI_MENU_FPS_LIMIT] = "Частота кадров",
     [UI_MENU_FPS_LIMIT_DESC] = "60 FPS включает патч игры на 60 кадров; 30 FPS отключает его. Читается на лету.",
@@ -1194,16 +1186,6 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_PCSS] = "Sombras suaves",
     [UI_MENU_PCSS_DESC] = "Sombras do sol nítidas onde um objeto toca o chão e mais suaves quanto mais longe a sombra "
                           "cai (PCSS). 0 mantém o filtro do jogo. Vale no próximo início.",
-    [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "NVIDIA DLSS para a cena 3D (placas NVIDIA RTX; nvngx_dlss.dll ao lado do astralchain.exe): bordas "
-                          "mais suaves e menos cintilação. O HUD não é afetado. O modo abaixo define a resolução de "
-                          "onde ele parte. Vale após reiniciar.",
-    [UI_MENU_DLSS] = "Modo do DLSS",
-    [UI_MENU_DLSS_DESC] = "DLAA desenha a cena 3D na resolução cheia. Qualidade, Equilibrado, Desempenho e Ultra "
-                          "Desempenho a desenham em 67, 58, 50 e 33 % da resolução do jogo (vezes a escala 3D) e "
-                          "deixam o DLSS ampliá-la, para mais quadros por segundo; o SMAA do jogo fica desligado com "
-                          "eles. Precisa do NVIDIA DLSS ligado. Vale na hora.",
-    [UI_MENU_DLSS_DLAA] = "DLAA (nativo)",
     [UI_MENU_DLSS_QUALITY] = "Qualidade",
     [UI_MENU_DLSS_BALANCED] = "Equilibrado",
     [UI_MENU_DLSS_PERFORMANCE] = "Desempenho",
@@ -1221,9 +1203,6 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
                                 "deixa essas bordas um pouco menos suaves. Vale na hora.",
     [UI_MENU_DLSS_CHARS_OFF] = "Desligado", [UI_MENU_DLSS_CHARS_LIGHT] = "Leve", [UI_MENU_DLSS_CHARS_MEDIUM] = "Médio",
     [UI_MENU_DLSS_CHARS_FULL] = "Total",
-    [UI_MENU_SMAA] = "Antisserrilhado do jogo (SMAA)",
-    [UI_MENU_SMAA_DESC] = "A suavização de bordas SMAA do próprio jogo. Com o DLAA ligado não é necessária, e desligada "
-                          "poupa as suas três passagens.",
     [UI_MENU_TAB_CHEATS] = "Cheats",
     [UI_MENU_CHEATS_NONE] = "Nenhum cheat para esta versão do jogo. Os cheats de um mod são um arquivo de cheats do "
                             "Atmosphere na pasta cheats dele, com o nome da build do jogo: mods\\<mod>\\cheats\\%s. "
@@ -1724,13 +1703,6 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_CONTACT_SHADOWS_DESC] = "阴影贴图遗漏的细小太阳阴影：脚下、石头下、草丛和褶皱中。在光照之后于屏幕空间追踪。下次启动时生效。",
     [UI_MENU_PCSS] = "柔和阴影",
     [UI_MENU_PCSS_DESC] = "物体接触地面处的太阳阴影锐利，阴影投得越远越柔和（PCSS）。0 保留游戏自身的过滤。下次启动时生效。",
-    [UI_MENU_DLAA] = "NVIDIA DLSS / DLAA",
-    [UI_MENU_DLAA_DESC] = "用于 3D 场景的 NVIDIA DLSS（NVIDIA RTX 显卡；nvngx_dlss.dll 放在 astralchain.exe 旁）：边缘更平滑，闪烁更少。HUD "
-                          "不受影响。下方的模式决定它的工作分辨率。重启后生效。",
-    [UI_MENU_DLSS] = "DLSS 模式",
-    [UI_MENU_DLSS_DESC] = "DLAA 以全分辨率绘制 3D 场景。质量、平衡、性能和超级性能分别以游戏分辨率（乘以 3D 渲染比例）的 67%、58%、50% 和 33% "
-                          "绘制，再由 DLSS 放大，以获得更高帧率；此时游戏的 SMAA 关闭。需要开启 NVIDIA DLSS。立即生效。",
-    [UI_MENU_DLSS_DLAA] = "DLAA（原生）",
     [UI_MENU_DLSS_QUALITY] = "质量",
     [UI_MENU_DLSS_BALANCED] = "平衡",
     [UI_MENU_DLSS_PERFORMANCE] = "性能",
@@ -1745,8 +1717,6 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
                                 "越强拖影越少，这些边缘也略欠平滑。立即生效。",
     [UI_MENU_DLSS_CHARS_OFF] = "关", [UI_MENU_DLSS_CHARS_LIGHT] = "弱", [UI_MENU_DLSS_CHARS_MEDIUM] = "中",
     [UI_MENU_DLSS_CHARS_FULL] = "强",
-    [UI_MENU_SMAA] = "游戏抗锯齿（SMAA）",
-    [UI_MENU_SMAA_DESC] = "游戏自身的 SMAA 边缘平滑。开启 DLAA 时不需要，关闭可省去它的三个渲染步骤。",
     [UI_MENU_TAB_CHEATS] = "金手指",
     [UI_MENU_CHEATS_NONE] = "此游戏版本没有金手指。模组的金手指是它的 cheats 文件夹中以游戏构建命名的 Atmosphere "
                             "金手指文件：mods\\<模组>\\cheats\\%s。重启游戏后才会读取。对于修改游戏代码的金手指，"

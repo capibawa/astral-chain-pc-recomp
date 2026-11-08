@@ -3,7 +3,13 @@
 #include "vk.h"
 #include "vk_exec.h"   // VkExec, VkExecTarget, p_bind_buf
 
-int vk_dlaa_wanted(void);   // the setting is on (the device may still lack DLSS)
+int vk_dlaa_wanted(void);   // a setting at start can ask for DLSS (the device may still lack it)
+// DLSS on this run: 1 it can run, 0 it cannot (NGX not up on this GPU), 2 unknown until a restart (no setting at start
+// asked for it, so NGX was not loaded). For the menu.
+int vk_dlaa_dlss_state(void);
+// What anti-aliases the scene now (anti_aliasing, upscaling): none (SMAA or nothing), DLAA, DLSS upscaling or FSR 3.
+enum { VK_TAA_NONE, VK_TAA_DLAA, VK_TAA_DLSS, VK_TAA_FSR3 };
+int vk_dlaa_running(void);
 // vk_device.c: NGX's instance and device extensions join the lists (room for max names); vk_dlaa_init after the
 // device exists brings NGX up and checks that DLSS is available.
 void vk_dlaa_instance_exts(const char **ext, uint32_t *n, uint32_t max);

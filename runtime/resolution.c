@@ -64,7 +64,7 @@ static struct {
     int heapdef_ok;            // romfs.c serves the grown HeapDef
     int on;                    // res_init switched the patch sets on
     unsigned shadow;           // fixed sun shadow map size (AC_SHADOW_RES), 0: the game's own
-    double dlss_k;             // AC_DLSS quality/balanced/performance/ultra_performance: the scene's share, else 0
+    double dlss_k;             // the upscaling quality's share of the output (quality .. ultra_performance), else 0
     int live;                  // the mode can change while the game runs (1.0.1 with DLSS able to run: res_dlss_mode)
 } R;
 
@@ -96,34 +96,34 @@ static int dlss_dll(void) {
 #endif
 }
 
-// A temporal upscaler can take a smaller scene: AMD FSR 3 always (AC_TEMPORAL_UPSCALER auto or fsr3; it needs no file,
-// and auto falls back to it where DLSS is missing), DLSS only with its model beside the executable.
-static int upscaler_runs(int *dll) {
-    if (*dll < 0) *dll = dlss_dll();
-    return *dll || strcmp(cfg_value("AC_TEMPORAL_UPSCALER"), "dlss");
+// The scene size at start, before NGX can be asked, as vk_dlaa.c taa_pick will decide it (it corrects this at its first
+// present through res_dlss_mode when the GPU says otherwise): "dlaa" for the game's size, else upscaling_quality.
+// DLAA (anti_aliasing = dlaa) and DLSS upscaling need the DLSS model beside the executable; without it DLAA falls back to
+// SMAA, upscaling = dlss to none and auto to FSR 3, which needs no file.
+static const char *start_mode(void) {
+    int dll = dlss_dll();
+    const char *up = cfg_value("AC_UPSCALING");
+    if (!strcmp(cfg_value("AC_ANTI_ALIASING"), "dlaa") && dll) return "dlaa";
+    if (!strcmp(up, "off")) return "dlaa";
+    if (!strcmp(up, "dlss") && !dll) {
+#ifdef _WIN32
+        rt_log("resolution: DLSS upscaling needs nvngx_dlss.dll next to astralchain.exe, which is missing: the scene "
+               "keeps the game's size");
+#else
+        rt_log("resolution: DLSS upscaling needs libnvidia-ngx-dlss.so.<version> next to the executable, which is "
+               "missing: the scene keeps the game's size");
+#endif
+        return "dlaa";
+    }
+    return cfg_value("AC_UPSCALING_QUALITY");
 }
 
-// The scene's share of the output for an AC_DLSS mode; 0 for dlaa (the scene keeps the game's size), while DLSS/DLAA
-// is off (the mode the menu still holds would shrink the scene for the game's plain scaling) and where no temporal
-// upscaler can run.
+// The scene's share of the output for a mode: 0 for dlaa (the scene keeps the game's size), else the quality's.
 static double dlss_share(const char *m) {
     static const struct { const char *name; double k; } dlss[] = {
         {"quality", 2.0 / 3.0}, {"balanced", 0.58}, {"performance", 0.5}, {"ultra_performance", 1.0 / 3.0}};
-    static int dll = -1, said;
-    if (!cfg_bool("AC_DLAA")) return 0;
     for (int i = 0; i < (int)(sizeof dlss / sizeof dlss[0]); i++)
-        if (!strcmp(m, dlss[i].name)) {
-            int runs = upscaler_runs(&dll);
-            if (!runs && !said++)
-#ifdef _WIN32
-                rt_log("resolution: DLSS %s needs nvngx_dlss.dll next to astralchain.exe, which is missing: the scene "
-                       "keeps the game's size", m);
-#else
-                rt_log("resolution: DLSS %s needs libnvidia-ngx-dlss.so.<version> next to the executable, which is "
-                       "missing: the scene keeps the game's size", m);
-#endif
-            return runs ? dlss[i].k : 0;
-        }
+        if (!strcmp(m, dlss[i].name)) return dlss[i].k;
     return 0;
 }
 
@@ -143,18 +143,20 @@ static void decide(void) {
     }
     const char *s = cfg_value("AC_RENDER_SCALE");
     double k = 5.0 / 6.0;
-    const char *m = cfg_value("AC_DLSS");   // a DLSS mode other than dlaa sets the scene size
+    const char *m = start_mode();   // an upscaling quality sets the scene size
     R.dlss_k = dlss_share(m);
     // Without the scene patch set (1.0.1 has none) the scene keeps the game's size: a DLSS mode would only bias the
-    // textures toward an output that is never upscaled, sharpening them into shimmer. DLSS then runs as DLAA.
+    // textures toward an output that is never upscaled, sharpening them into shimmer. The upscaler then runs at the
+    // game's size.
     if (R.dlss_k && rt_patch_set("scene") < 0) {
-        rt_log("resolution: DLSS %s needs the scene patch set, which this game version lacks: DLSS runs as DLAA", m);
+        rt_log("resolution: upscaling (%s) needs the scene patch set, which this game version lacks: it runs at the "
+               "game's size", m);
         R.dlss_k = 0;
     }
     if (R.dlss_k) {
         k = R.dlss_k;
         R.scene_set = 1;
-        rt_log("resolution: DLSS %s: the scene at %.0f %% of the output (render_scale ignored)", m, k * 100);
+        rt_log("resolution: upscaling %s: the scene at %.0f %% of the output (render_scale ignored)", m, k * 100);
     } else if (strcmp(s, "game")) {
         char *end;
         double pct = strtod(s, &end);
@@ -460,8 +462,8 @@ void res_game_size(unsigned out[2]) {
 // levels all take the size on page +16 ({w, h} as floats, read by rt_res_scene_w1 / rt_res_scene_h2 below), and the
 // game's own scaling pass draws the scene to the output, where vk_dlaa.c runs DLSS in its place. The scene is never
 // larger than the targets the game already makes, so the texture heap needs nothing more.
-// With DLSS able to run (dlaa = 1, nvngx_dlss.dll there) the set is always on, so the mode can change while the game
-// runs (res_dlss_mode): dlaa gives every level the game resolution.
+// With DLAA or an upscaler able to run from the settings at start (scene_only_init) the set is always on, so the mode
+// can change while the game runs (res_dlss_mode): dlaa gives every level the game resolution.
 
 // The scene for a share k of the game resolution g. The first 3D frame loses the device (RTX 5070 Ti) unless the scene
 // is 32n x 18n, with or without DLSS evaluating (AC_DLAA_MV and the object pass off changed nothing either; the device
@@ -469,14 +471,15 @@ void res_game_size(unsigned out[2]) {
 // at 1920x1080: 1120x630 plays; 1114x626, 1120x626, 1114x630, 1136x640 and 1104x621 do not. The game resolutions
 // output_res offers are all on that grid (resolution.c res_output_grid), so the nearest n below the game's own width
 // is the scene: 1280x720, 1120x630, 960x540 and 640x360 at 1920x1080. None (a game resolution narrower than 64): the
-// game resolution, and DLSS runs as DLAA. k = 0: the game resolution itself.
+// game resolution, and the upscaler runs at it. k = 0: the game resolution itself.
 static void scene_for(double k, const unsigned g[2], unsigned *w, unsigned *h) {
     *w = g[0], *h = g[1];
     if (!k) return;
     int want = (int)lround(g[0] * k / 32), most = (int)(g[0] / 32);
     if (want >= most) want = most - 1;
     if (want < 1) {
-        rt_log("resolution: no scene near %.0f %% of %ux%u on the 32x18 grid: DLSS runs as DLAA", k * 100, g[0], g[1]);
+        rt_log("resolution: no scene near %.0f %% of %ux%u on the 32x18 grid: it runs at the game's size", k * 100,
+               g[0], g[1]);
         return;
     }
     *w = 32 * (unsigned)want, *h = 18 * (unsigned)want;
@@ -493,8 +496,12 @@ static volatile uint64_t size_pending; // that size until the game thread takes 
 static void scene_only_init(int set) {
     unsigned g[2];
     res_game_size(g);
-    int dll = -1;
-    R.live = cfg_bool("AC_DLAA") && upscaler_runs(&dll);
+    // On when a setting at start can run DLAA or an upscaler, so upscaling and its quality can change while the game
+    // runs; with SMAA or nothing the set stays off and the game keeps its dynamic-resolution levels
+    int dll = dlss_dll();
+    const char *up = cfg_value("AC_UPSCALING");
+    R.live = (!strcmp(cfg_value("AC_ANTI_ALIASING"), "dlaa") && dll) ||
+             (strcmp(up, "off") && (strcmp(up, "dlss") || dll));
     if (!R.live) {
         rt_patch_switch(set, 0);
         return;
@@ -505,11 +512,11 @@ static void scene_only_init(int set) {
     size_asked = pack(R.sw, R.sh);
     rt_patch_switch(set, 1);
     R.on = 1;
-    rt_log("resolution: scene %ux%u, output %ux%u (DLSS %s); the DLSS mode can change while the game runs", R.sw, R.sh,
-           R.ow, R.oh, cfg_value("AC_DLSS"));
+    rt_log("resolution: scene %ux%u, output %ux%u (%s); upscaling can change while the game runs", R.sw, R.sh, R.ow,
+           R.oh, start_mode());
 }
 
-// An AC_DLSS change while the game runs (vk_dlaa.c, at a present): the new scene size waits in size_pending for the
+// An upscaling change while the game runs (vk_dlaa.c, at a present): the new scene size waits in size_pending for the
 // framework's per-frame window update (0x9db520, run by the main loop after each frame's draw), which writes it to the
 // patch page and is told the display changed (rt_res_rebuild_w8). The game then runs its own display-change sequence
 // there: it remakes its screen-sized resources and calls the callback its renderer setup registered for a docked /
@@ -541,7 +548,7 @@ int res_dlss_mode(const char *m) {
     double k = dlss_share(m);
     if (k == R.dlss_k || !R.on) return 0;
     if (!R.live) {
-        rt_log("resolution: DLSS %s takes effect at the next start", m);
+        rt_log("resolution: upscaling (%s) takes effect at the next start", m);
         return 0;
     }
     R.dlss_k = k;
@@ -553,7 +560,7 @@ int res_dlss_mode(const char *m) {
     if (want == size_asked) return 0;
     size_asked = want;
     __atomic_store_n(&size_pending, want, __ATOMIC_RELEASE);
-    rt_log("resolution: DLSS %s: scene %ux%u from the next frame", m, w, h);
+    rt_log("resolution: upscaling %s: scene %ux%u from the next frame", m, w, h);
     return 1;
 }
 

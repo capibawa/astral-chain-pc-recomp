@@ -45,6 +45,10 @@ extern "C" {
 #include "platform/platform.h"
 #include "ui/menu.h"
 #include "ui_text.h"
+// runtime/vk_dlaa.h, which pulls in Vulkan: what the anti-aliasing rows need of it
+int vk_dlaa_dlss_state(void);
+int vk_dlaa_running(void);
+enum { VK_TAA_NONE, VK_TAA_DLAA, VK_TAA_DLSS, VK_TAA_FSR3 };
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void vk_queue_lock(void);
@@ -597,6 +601,50 @@ static const char *present_note(void) {
     return note;
 }
 
+// Anti-aliasing and temporal upscaling (runtime/vk_dlaa.c taa_pick decides what runs from these). DLAA and DLSS are
+// offered where DLSS can run, or may after a restart (NGX is loaded only when a setting at start asks for it); where it
+// cannot, a stored dlaa shows as SMAA and a stored dlss as Off, which is what runs. DLAA takes precedence: upscaling is
+// greyed out under it. The quality row needs the scene patch set (recomp/patches-v101.txt) and upscaling on; the DLSS
+// model and trails rows show while DLAA or DLSS runs.
+static void rows_antialiasing(void) {
+    int dlss = vk_dlaa_dlss_state(), run = vk_dlaa_running();
+    const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
+    {
+        static const char *const vals[] = {"off", "smaa", "dlaa"};
+        const char *names[] = {ui_text(UI_MENU_AA_OFF), ui_text(UI_MENU_AA_SMAA), ui_text(UI_MENU_AA_DLAA)};
+        opt_choice_list("AC_ANTI_ALIASING", UI_MENU_AA, vals, names, dlss ? 3 : 2, UI_MENU_AA_DESC,
+                        !dlss && !strcmp(aa, "dlaa") ? 1 : -1);
+    }
+    bool dlaa = !strcmp(aa, "dlaa") && dlss;
+    if (dlaa) opt_disable_next(UI_MENU_UPSCALING_BY_DLAA);
+    {
+        static const char *const all[] = {"off", "auto", "dlss", "fsr3"};
+        const UiTextId ids[] = {UI_MENU_UPSCALING_OFF, UI_MENU_UPSCALING_AUTO, UI_MENU_UPSCALING_DLSS,
+                                UI_MENU_UPSCALING_FSR3};
+        const char *vals[4], *names[4];
+        int n = 0, cur = -1;
+        for (int i = 0; i < 4; i++) {
+            if (!dlss && i == 2) continue;   // DLSS cannot run on this GPU
+            if (!strcmp(up, all[i])) cur = n;
+            vals[n] = all[i], names[n++] = ui_text(ids[i]);
+        }
+        if (cur < 0) cur = 0;   // a stored dlss where it cannot run: Off is what runs
+        opt_choice_list("AC_UPSCALING", UI_MENU_UPSCALING, vals, names, n, UI_MENU_UPSCALING_DESC, cur);
+    }
+    if (rt_patch_set("scene") >= 0 && strcmp(up, "off") && !dlaa) {
+        static const UiTextId q[] = {UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED, UI_MENU_DLSS_PERFORMANCE,
+                                     UI_MENU_DLSS_ULTRA};
+        opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC);
+    }
+    if (run == VK_TAA_DLAA || run == VK_TAA_DLSS) {
+        static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
+        opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
+        static const UiTextId chars[] = {UI_MENU_DLSS_CHARS_OFF, UI_MENU_DLSS_CHARS_LIGHT, UI_MENU_DLSS_CHARS_MEDIUM,
+                                         UI_MENU_DLSS_CHARS_FULL};
+        opt_choice("AC_DLSS_CHAR_MASK", UI_MENU_DLSS_CHARS, chars, 4, UI_MENU_DLSS_CHARS_DESC);
+    }
+}
+
 // ---- the tabs
 // Colour adjustment (vk_color.c): a profile writes the four values (STS78721's presets, issue #136); moving one of them
 // makes the profile Custom.
@@ -652,20 +700,7 @@ static void tab_screen(float scale) {
     row_shadow_range();
     opt_slider("AC_PCSS", UI_MENU_PCSS, 0, 200, UI_MENU_PCSS_DESC, 10, "%.0f %%");
     opt_slider("AC_CONTACT_SHADOWS", UI_MENU_CONTACT_SHADOWS, 0, 100, UI_MENU_CONTACT_SHADOWS_DESC, 10, "%.0f %%");
-    opt_toggle("AC_DLAA", UI_MENU_DLAA, UI_MENU_DLAA_DESC);
-    static const UiTextId temporal[] = {UI_MENU_TEMPORAL_AUTO, UI_MENU_TEMPORAL_DLSS, UI_MENU_TEMPORAL_FSR3};
-    opt_choice("AC_TEMPORAL_UPSCALER", UI_MENU_TEMPORAL, temporal, 3, UI_MENU_TEMPORAL_DESC);
-    static const UiTextId dlss[] = {UI_MENU_DLSS_DLAA, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED,
-                                    UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
-    // the upscaling modes set the scene size through the scene patch set (recomp/patches-v101.txt): without it there
-    // is only DLAA
-    if (rt_patch_set("scene") >= 0) opt_choice("AC_DLSS", UI_MENU_DLSS, dlss, 5, UI_MENU_DLSS_DESC);
-    static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
-    opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
-    static const UiTextId chars[] = {UI_MENU_DLSS_CHARS_OFF, UI_MENU_DLSS_CHARS_LIGHT, UI_MENU_DLSS_CHARS_MEDIUM,
-                                     UI_MENU_DLSS_CHARS_FULL};
-    opt_choice("AC_DLSS_CHAR_MASK", UI_MENU_DLSS_CHARS, chars, 4, UI_MENU_DLSS_CHARS_DESC);
-    opt_toggle("AC_SMAA", UI_MENU_SMAA, UI_MENU_SMAA_DESC);
+    rows_antialiasing();
     rows_color();
     opt_group(UI_MENU_HDR_GROUP);
     opt_toggle("AC_HDR", UI_MENU_HDR, UI_MENU_HDR_DESC);

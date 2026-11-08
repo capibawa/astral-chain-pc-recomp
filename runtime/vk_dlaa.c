@@ -1,4 +1,6 @@
-// DLAA: NVIDIA DLSS at the scene's own size (AC_DLAA, astralchain.ini dlaa). NGX is loaded at run time from the driver's
+// DLAA and temporal upscaling: NVIDIA DLSS at the scene's own size (anti_aliasing = dlaa) or from a smaller scene
+// (upscaling = dlss or auto), and AMD FSR 3 (vk_fsr3.c; upscaling = fsr3 or auto) at the same point; taa_pick says which
+// runs. NGX is loaded at run time from the driver's
 // NGX core: on Windows _nvngx.dll, found through HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore; on Linux
 // libnvidia-ngx.so.1, which the NVIDIA driver installs on the library path. NGX loads the DLSS model from the folder of
 // the executable: nvngx_dlss.dll on Windows, libnvidia-ngx-dlss.so.<version> on Linux. No NVIDIA SDK code or header is
@@ -105,12 +107,16 @@ static int p_getp(const NgxParam *p, const char *n, void **v) { return NGX_OK(((
 #define DLSS_MODEL "libnvidia-ngx-dlss.so.<version>"
 #endif
 
-// NGX is brought up only when dlaa is on at start: its device extensions can only be asked for at device creation, and
-// loading the driver's NGX core on every NVIDIA machine would cost start time and change the device with DLAA off. So
-// dlaa applies after a restart; switched off, nothing else of DLAA runs.
+// NGX is brought up only when a setting at start can ask for DLSS (anti_aliasing = dlaa, upscaling = auto or dlss):
+// its device extensions can only be asked for at device creation, and loading the driver's NGX core on every NVIDIA
+// machine would cost start time and change the device without DLSS. A change that first asks for DLSS applies after a
+// restart.
 int vk_dlaa_wanted(void) {
     static int wanted = -1;
-    if (wanted < 0) wanted = cfg_bool("AC_DLAA");
+    if (wanted < 0) {
+        const char *up = cfg_value("AC_UPSCALING");
+        wanted = !strcmp(cfg_value("AC_ANTI_ALIASING"), "dlaa") || !strcmp(up, "auto") || !strcmp(up, "dlss");
+    }
     return wanted;
 }
 
@@ -277,7 +283,7 @@ void vk_dlaa_init(void) {
 // after the light target's last pass) ends the scene (no jitter after it) and, unless the scene set made the scene
 // smaller than the output (scaled), runs DLAA on the armed target first. The bloom's first two levels have read the
 // scene unresolved, which their blur hides; the composite, post and HUD work on the anti-aliased picture.
-// Upscaling (a scene smaller than the output: AC_DLSS quality/balanced/performance through the scene patch set,
+// Upscaling (a scene smaller than the output: upscaling_quality through the scene patch set,
 // resolution.c): measured (AC_DUMP, 960x540 scene, 1920x1080 output, the night highway save in a cutscene and in play)
 // the whole scene runs at its size: depth prepass, light target, bloom chain, and the composite, a full-screen pass
 // with the scene depth that writes bloom, tonemap and grading (values 0..1) into another R11G11B10F target of the
@@ -338,7 +344,8 @@ static struct {
     uint32_t gap;                // presents in a row without the DLAA point, up to the last one
     uint64_t why[4];             // history resets: scene size changed, no camera, scene target changed, gap
     int on;                      // the dlaa setting, read at each present (the menu switches it live)
-    int fsr3;                    // the frame's upscaler is AMD FSR 3 (vk_fsr3.c), not DLSS (use_fsr3)
+    int fsr3;                    // the frame's upscaler is AMD FSR 3 (vk_fsr3.c), not DLSS (taa_pick)
+    int native;                  // it runs at the scene's own size: DLAA (anti_aliasing = dlaa)
     int preset, preset_dirty;    // the DLSS model features are created with (preset_value); a change pending
     unsigned cfg_seen;           // cfg_version when preset was read
     uint64_t last_eval_ns;       // plat_now_ns of the previous evaluation (FrameTimeDeltaInMsec)
@@ -347,28 +354,36 @@ static struct {
 const VkTexImage *vk_dlaa_swap_img;
 VkImageView vk_dlaa_swap_view;
 
-// AC_TEMPORAL_UPSCALER (live): dlss, fsr3, or auto (the default): DLSS where NGX is up (an RTX card with the DLSS model
-// next to the executable), FSR 3 everywhere else. Both run at the same point of the frame on the same inputs.
-static int use_fsr3(void) {
-    const char *v = cfg_value("AC_TEMPORAL_UPSCALER");
-    return !strcmp(v, "fsr3") || (strcmp(v, "dlss") && !N.available);
+// What runs, from anti_aliasing and upscaling (both live; cfg.c): DLAA (DLSS at the scene's own size) when anti_aliasing
+// is dlaa and DLSS can run, which takes precedence over upscaling; else the upscaling setting: dlss (where it can
+// run), fsr3, or auto (DLSS where it can run, FSR 3 everywhere else), at upscaling_quality's scene size. DLSS can run
+// where NGX came up (an RTX card with the DLSS model next to the executable, and a setting at start that asked for it,
+// vk_dlaa_wanted). Where DLAA cannot run, anti_aliasing = dlaa falls back to SMAA (vk_dlaa_skip_draw). Both upscalers
+// run at the same point of the frame on the same inputs. *mode: "dlaa" for the scene's own size, else the quality.
+enum { TAA_NONE, TAA_DLSS, TAA_FSR3 };
+static int taa_pick(const char **mode) {
+    const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
+    int dlss = N.available && !D.failed;
+    *mode = "dlaa";
+    if (D.failed) return TAA_NONE;
+    if (!strcmp(aa, "dlaa") && dlss) return TAA_DLSS;
+    *mode = cfg_value("AC_UPSCALING_QUALITY");
+    if (!strcmp(up, "dlss") || (!strcmp(up, "auto") && dlss)) return dlss ? TAA_DLSS : TAA_NONE;
+    if (!strcmp(up, "fsr3") || !strcmp(up, "auto")) return vk_fsr3_ready() ? TAA_FSR3 : TAA_NONE;
+    return TAA_NONE;
 }
 
-// The chosen upscaler can run: NGX up for DLSS, the FSR 3 host set up (vk_fsr3_ready) for FSR 3.
-static int backend_ok(void) { return use_fsr3() ? vk_fsr3_ready() : N.available; }
+static int dl_active(void) { return !D.failed && D.on; }
 
-static int dl_active(void) { return !D.failed && D.on && (D.fsr3 ? vk_fsr3_ready() : N.available); }
-
-// The scene set makes the scene smaller than the output (res_sizes; a mode change takes effect once the game rebuilt
-// its scene targets, resolution.c rt_res_rebuild_w8): DLSS scales instead of DLAA.
-static int scaled(void) {
-    unsigned o[2], s[2];
-    res_sizes(o, s);
-    return s[0] < o[0];
+int vk_dlaa_dlss_state(void) {
+    if (N.available && !D.failed) return 1;
+    return N.tried || vk_dlaa_wanted() ? 0 : 2;   // NGX tried and not up: DLSS cannot run; never asked: after a restart
 }
+
+int vk_dlaa_running(void) { return !dl_active() ? 0 : D.fsr3 ? VK_TAA_FSR3 : D.native ? VK_TAA_DLAA : VK_TAA_DLSS; }
 
 // A scene target of this width is smaller than the output, whose targets ssaa scales as well. Asked of the target and
-// not of scaled(): res_sizes moves when the game starts its rebuild, and the frames already drawn at the old size are
+// not of the scene size res_sizes reports: that moves when the game starts its rebuild, and the frames already drawn at the old size are
 // still to come. Judged by the setting, a frame at the old small size ran in-place DLAA, which made a feature of its
 // own for that frame, and a frame at the old full size waited for a scaling pass that never came and shook.
 static int target_scaled(uint32_t w) {
@@ -1170,14 +1185,13 @@ void vk_dlaa_pass(VkExec *ex) {
     }
 }
 
-// AC_DLSS, read at each present (the menu switches it live): the scene size of the mode (resolution.c) and the
-// texture bias that goes with it while DLSS runs. After the TotK Recomp's vk_dlaa.c dlss_mode (same author, MIT).
-// A mode only means a smaller scene while DLSS can scale it. With dlaa switched off, NGX not up (no RTX GPU beside the
-// DLL) or DLSS failed in this run, the scene goes back to the game's size, or the game's plain scaling would show it at
-// 33..67 % of the output: the setting stays as it is, and the mode comes back with dlaa.
-// AC_DLSS_CYCLE=<frames> (test): every that many presents the mode moves on to the next one, as a click in the menu
-// would, so one scripted run goes through all of them.
-static void dlss_mode(void) {
+// The scene size of what runs (taa_pick; resolution.c), read at each present (the menu switches it live), and the
+// texture bias that goes with it while it runs. After the TotK Recomp's vk_dlaa.c dlss_mode (same author, MIT). A
+// quality only means a smaller scene while an upscaler can scale it: with upscaling off, DLAA chosen, nothing able to run
+// or DLSS failed in this run, the scene keeps the game's size, or the game's plain scaling would show it at 33..67 % of
+// the output. AC_DLSS_CYCLE=<frames> (test): every that many presents upscaling_quality moves on to the next one, as a
+// click in the menu would, so one scripted run goes through all of them.
+static void dlss_mode(int taa, const char *want) {
     static char mode[32];
     static float bias = 0;
     static int cycle = -1;
@@ -1187,12 +1201,12 @@ static void dlss_mode(void) {
         cycle = v && *v ? atoi(v) : 0;
     }
     if (cycle > 0 && ++presents % (uint64_t)cycle == 0) {
-        static const char *const modes[] = {"dlaa", "quality", "balanced", "performance", "ultra_performance"};
+        static const char *const modes[] = {"quality", "balanced", "performance", "ultra_performance"};
         int i = 0;
-        while (i < 5 && strcmp(cfg_value("AC_DLSS"), modes[i])) i++;
-        cfg_set("AC_DLSS", modes[(i + 1) % 5]);
+        while (i < 4 && strcmp(cfg_value("AC_UPSCALING_QUALITY"), modes[i])) i++;
+        cfg_set("AC_UPSCALING_QUALITY", modes[(i + 1) % 4]);
     }
-    const char *m = backend_ok() && !D.failed && cfg_bool("AC_DLAA") ? cfg_value("AC_DLSS") : "dlaa";
+    const char *m = taa != TAA_NONE ? want : "dlaa";
     if (strcmp(m, mode)) {
         snprintf(mode, sizeof mode, "%s", m);
         res_dlss_mode(m);
@@ -1203,12 +1217,14 @@ static void dlss_mode(void) {
 
 void vk_dlaa_frame(void) {
     vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE;
-    dlss_mode();
+    const char *want;
+    int taa = taa_pick(&want), native = !strcmp(want, "dlaa");
+    dlss_mode(taa, want);
     if (N.available) preset_check();
-    int fsr3 = use_fsr3(), on = backend_ok() && cfg_bool("AC_DLAA");
-    if (on != D.on || (on && fsr3 != D.fsr3)) {
-        rt_log("dlaa: %s", on ? fsr3 ? "on (AMD FSR 3)" : "on (DLSS)" : "off");
-        D.on = on, D.fsr3 = fsr3;
+    int fsr3 = taa == TAA_FSR3, on = taa != TAA_NONE;
+    if (on != D.on || (on && (fsr3 != D.fsr3 || native != D.native))) {
+        rt_log("dlaa: %s", !on ? "off" : fsr3 ? "AMD FSR 3 upscaling" : native ? "DLAA" : "DLSS upscaling");
+        D.on = on, D.fsr3 = fsr3, D.native = native;
         // either way the next DLAA frame starts a new history from an unjittered frame
         D.reset = 1, D.cam_prev_ok = D.view_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;
         D.comp_ok = 0;
@@ -1226,16 +1242,17 @@ void vk_dlaa_frame(void) {
     memset(D.cams, 0, sizeof D.cams);
 }
 
-// ---------------------------------------------------------------- the game's SMAA (AC_SMAA, live)
+// ---------------------------------------------------------------- the game's SMAA (anti_aliasing = smaa, live)
 // Astral Chain anti-aliases with SMAA 1x, three full-screen passes after the composite (measured: AC_DUMP frame 4200
 // outside the police HQ; the key was fxaa before, cfg.c migrate_smaa): edge detection into an RGBA8 target, blend
 // weights from those edges and SMAA's area (160x560) and search (64x16) textures, then neighbourhood blending of the
-// HDR picture by the weights, which also writes the 8-bit picture the HUD is drawn over. With smaa = 0 the edge pass
+// HDR picture by the weights, which also writes the 8-bit picture the HUD is drawn over. With SMAA off the edge pass
 // is skipped and the weights pass clears its target instead of drawing, so the blending pass, which still runs, blends
 // nothing. Shaders are known by the FNV-1a hash of their SPIR-V, as vk_dump.c names them; a translator change that
 // gives them other hashes makes the switch do nothing.
-// While DLSS upscales, SMAA is off whatever the setting: its weights are found on the small picture, and the blending
-// pass, which also scales, would apply them to DLSS's full-size one, smearing edges by a scene pixel. With the weights
+// While DLAA, DLSS or FSR 3 runs, SMAA is off whatever the setting: they anti-alias the scene themselves, and when they
+// upscale, SMAA's weights are found on the small picture while the blending pass, which also scales, would apply them
+// to the full-size one, smearing edges by a scene pixel. With the weights
 // zero that pass only scales (a plain lookup of DLSS's picture at each output pixel). A switch that stops finding them
 // says so once, as the TotK Recomp's FXAA switch does: the first skip, or a minute of frames (3600) with none.
 static const uint64_t SMAA_EDGES = 0x312b4b91aa889b89ull, SMAA_WEIGHTS = 0xc7dc68a5786be9ceull;
@@ -1264,7 +1281,9 @@ int vk_dlaa_skip_draw(VkExec *ex, const GfxShader *fs) {
     uint64_t f = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
     if (f != frame_read) {   // once a frame: the menu switches it live
         frame_read = f;
-        smaa = cfg_bool("AC_SMAA") && !(scaled() && dl_active());
+        // SMAA only while nothing temporal runs (DLAA, DLSS and FSR 3 anti-alias the scene themselves), for
+        // anti_aliasing = smaa and for dlaa where DLAA cannot run
+        smaa = strcmp(cfg_value("AC_ANTI_ALIASING"), "off") && !dl_active();
         if (!smaa && !found && !reported && ++off_frames == 3600) {
             reported = 1;
             rt_log("dlaa: smaa off found no draw of the game's SMAA in %llu frames (its fragment shaders are not "
