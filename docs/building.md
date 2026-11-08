@@ -104,12 +104,13 @@ From the repository root, in PowerShell. Every step that depends on the game ver
    ```
    `--patches` builds in the frame-rate, resolution and other patch sets, switchable at run time. The link copies
    `SDL3.dll`, `libiconv-2.dll` and `libopus-0.dll` next to the exe.
-   For Xbox and PlayStation button prompts (the Controls tab's *Button prompts* row), build the button mods' overlays
-   from the emulator mods with `tools\make_prompts_folders.py` (defaults read `controller-ui\`):
-   they write the two `romfs-patches-*` folders, which `build_game.py` copies next to `astralchain.exe` like
-   `romfs-patches`. As in TotK Recomp, `prompts` defaults to `nintendo` (the game's own) and the mods load only when
-   chosen on the Controls tab or in `astralchain.ini`, after a restart. The mods draw the Switch positions, so they
-   suit the Nintendo layout; the Xbox layout mismatches their glyphs (the menu warns).
+   For Xbox and PlayStation button prompts (the Controls tab's *Button prompts* row), run
+   `.venv\Scripts\python tools\make_prompts_folders.py --out build\v101`. It redraws the game's own prompts atlas
+   from the extracted RomFS and writes four `romfs-patches-*` folders (Xbox and PlayStation, each by position for the
+   Nintendo layout and by label for the others), which `build_game.py` copies next to `astralchain.exe` like
+   `romfs-patches`; the setup runs it in its compile step. As in TotK Recomp, `prompts` defaults to `nintendo` (the
+   game's own) and the others load only when chosen, after a restart. `--preview build\prompts-preview` also writes
+   the atlases as PNGs.
 
 6. Prepare the shaders (once per build folder and translator). It reads the variants players met from
    `generated\shader-answers.bin` (recorded in play; `tools\prepare_shaders.py --recordings` turns a recording into it)
@@ -195,9 +196,10 @@ Before a commit:
   `git config core.hooksPath .githooks` runs it before each local commit.
 - `build\v101\astralchain.exe --selftest`: layout, dispatch table and host-function registry, without game files.
 
-A change to the button prompts (`tools/make_prompts_folders.py`, `runtime/romfs.c` overlay_init) passes
-`astralchain.exe --probe-cfg`, which checks the prompts pick and folders (input_map.c); a change to the settings
-passes it too.
+A change to the button prompts (`tools/make_prompts_folders.py`, `tools/prompt_glyphs.py`, `runtime/romfs.c`
+overlay_init) passes `astralchain.exe --probe-cfg`, which checks the prompts pick and folders and that each folder
+draws A where its layout presses it (input_map.c), and gets a look at the `--preview` atlases; a change to the
+settings passes `--probe-cfg` too.
 
 The lifter (`recomp/`) and the CPU headers (`runtime/cpu.h`, `runtime/simd.h`) are checked against Unicorn. Every lifter
 change passes these, all run with `.venv`:

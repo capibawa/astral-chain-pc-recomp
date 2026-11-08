@@ -86,19 +86,19 @@ void input_map_configure(void);
 int input_pad_layout_pick(const char *setting, int east_labelled_a);
 
 // Button prompts (AC_PROMPTS): the controller whose buttons the game's prompts show. Nintendo: the game's own. Xbox
-// and PlayStation: button mods shipped as romfs-patches folders (tools/make_prompts_folders.py), drawn at
-// the Switch positions (runtime/romfs.c overlay_init). With the Nintendo layout the right button does Switch A and
-// the Xbox mod shows it as B; with the Xbox layout the same glyphs name the wrong buttons (the menu warns). As in
-// TotK Recomp, the prompts never change by themselves: Nintendo is the default, the others are the player's
+// and PlayStation: the game's prompts atlas redrawn at install (tools/make_prompts_folders.py) into romfs-patches
+// folders (runtime/romfs.c overlay_init), one per pad layout, so each prompt names the button the layout presses. As
+// in TotK Recomp, the prompts never change by themselves: Nintendo is the default, the others are the player's
 // choice, so a Switch controller (and any pad) keeps the game's own prompts unless asked otherwise.
 enum { PROMPTS_NINTENDO, PROMPTS_XBOX, PROMPTS_PLAYSTATION };
 // The prompts for a AC_PROMPTS value ("nintendo", "xbox" or "playstation", any case; anything else, 1.4's "auto"
 // included, is Nintendo). Unset or empty: Xbox while the pad layout setting is "xbox_prompts" (0.1.9's name for the
 // Nintendo layout with the Xbox prompts), else Nintendo.
 int input_prompts_pick(const char *prompts, const char *pad_layout);
-// The folder next to romfs-index.bin that holds those prompts, NULL for the game's own. One folder per mod whatever
-// the AC_PAD_LAYOUT value: the mods only draw the Switch positions, so the layout keeps moving the buttons live and
-// the glyphs mismatch it outside the Nintendo layout.
+// The folder next to romfs-index.bin that holds those prompts for a AC_PAD_LAYOUT value, NULL for the game's own. The
+// Nintendo layout plays a pad by position, so its folder names the face buttons by position (romfs-patches-xbox:
+// Switch A, the right button, shows B); xbox and auto put every Switch button on the button labelled with its letter,
+// so they share the -label folder (A shows A, cross on PlayStation).
 const char *input_prompts_folder(int prompts, const char *pad_layout);
 // down[pad] != 0 for the gamepad inputs held. Returns the Switch button bits (0..15) the layout's pad table presses.
 uint64_t input_map_pad_buttons(const uint8_t down[PAD_COUNT], int layout);

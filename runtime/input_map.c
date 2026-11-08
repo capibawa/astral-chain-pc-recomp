@@ -299,9 +299,12 @@ int input_prompts_pick(const char *prompts, const char *pad_layout) {
 }
 
 const char *input_prompts_folder(int prompts, const char *pad_layout) {
-    (void)pad_layout;   // the button mods draw the Switch positions whatever the layout in effect
-    if (prompts == PROMPTS_XBOX) return "romfs-patches-xbox";
-    if (prompts == PROMPTS_PLAYSTATION) return "romfs-patches-playstation";
+    // The folders are read at start, before a pad is open: auto counts as the Xbox layout, as for a pad without
+    // Nintendo labels (TotK Recomp input_prompts_folder does the same). A Nintendo-labelled pad under auto plays by
+    // label too (its A is on the button labelled A), so the label folder matches it as well.
+    int label = input_pad_layout_pick(pad_layout, 0) != PAD_LAYOUT_NINTENDO;
+    if (prompts == PROMPTS_XBOX) return label ? "romfs-patches-xbox-label" : "romfs-patches-xbox";
+    if (prompts == PROMPTS_PLAYSTATION) return label ? "romfs-patches-playstation-label" : "romfs-patches-playstation";
     return NULL;   // Nintendo needs no folder
 }
 

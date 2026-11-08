@@ -238,11 +238,11 @@
 # 0.1.9's xbox_prompts is read as nintendo with prompts = xbox.
 # pad_layout = auto
 # The buttons the game's prompts show: nintendo (default; the game's own, also what a Switch controller has), xbox or
-# playstation (the controller button mods, built from emulator mods with tools\make_prompts_folders.py into
-# romfs-patches-xbox and romfs-patches-playstation next to the exe). They never change by themselves. The mods draw
-# the buttons at the Switch positions, so they suit pad_layout = nintendo, where A shows as B on Xbox; with the xbox
-# layout their glyphs name the wrong buttons. The PlayStation mod only covers the base and US UI files. 1.4's auto
-# reads as nintendo. Read at start: changing it needs a restart, which the Controls tab offers.
+# playstation (the game's prompts redrawn by the setup, tools\make_prompts_folders.py, into the romfs-patches-xbox
+# and -playstation folders next to the exe). They never change by themselves. Each prompt names the button the pad
+# layout presses: with pad_layout = nintendo, A (the right button) shows as B on Xbox and circle on PlayStation; with
+# xbox or auto, A shows as A and cross. 1.4's auto reads as nintendo. Read at start: changing it, or changing
+# pad_layout between nintendo and the others, needs a restart, which the Controls tab offers.
 # prompts = nintendo
 # Gamepad stick dead zone in percent of full deflection (0 to 50). Raise it for a stick that drifts: inside the circle
 # the stick reads centred, and the rest of its travel is scaled to start there.

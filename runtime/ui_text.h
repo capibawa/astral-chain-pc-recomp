@@ -96,7 +96,7 @@ typedef enum {
     // the notes under the prompts: their files are missing or damaged, they change after restart, why they are off,
     // or why the Xbox layout mismatches mods drawn at the Switch positions
     UI_MENU_PROMPTS_MISSING, UI_MENU_PROMPTS_FAILED, UI_MENU_PROMPTS_RESTART, UI_MENU_PROMPTS_OFF_SHAPE,
-    UI_MENU_PROMPTS_OFF_MODS, UI_MENU_PROMPTS_OFF_PATCHES, UI_MENU_PROMPTS_DESC_LAYOUT,
+    UI_MENU_PROMPTS_OFF_MODS, UI_MENU_PROMPTS_OFF_PATCHES,
     // "Restart now" for the cheats rebuild, and its confirmation (Cancel: UI_MENU_RESET_NO)
     UI_MENU_RESTART, UI_MENU_RESTART_DESC, UI_MENU_RESTART_CONFIRM, UI_MENU_RESTART_YES, UI_MENU_RESTART_SAVING,
     UI_MENU_LSTICK_DEADZONE, UI_MENU_RSTICK_DEADZONE, UI_MENU_STICK_DEADZONE_DESC,

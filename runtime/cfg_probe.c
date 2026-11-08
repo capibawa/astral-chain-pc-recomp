@@ -312,24 +312,26 @@ int probe_cfg(void) {
     CHECK(!input_prompts_folder(PROMPTS_NINTENDO, "nintendo") && !input_prompts_folder(PROMPTS_NINTENDO, "xbox"),
           "prompts: the game's own need no folder");
     CHECK(EQ(input_prompts_folder(PROMPTS_XBOX, "nintendo"), "romfs-patches-xbox") &&
-              EQ(input_prompts_folder(PROMPTS_XBOX, "xbox"), "romfs-patches-xbox") &&
-              EQ(input_prompts_folder(PROMPTS_XBOX, "auto"), "romfs-patches-xbox") &&
-              EQ(input_prompts_folder(PROMPTS_XBOX, NULL), "romfs-patches-xbox"),
-          "prompts: one Xbox folder whatever the layout (the mod draws the Switch positions)");
+              EQ(input_prompts_folder(PROMPTS_XBOX, "xbox_prompts"), "romfs-patches-xbox") &&
+              EQ(input_prompts_folder(PROMPTS_XBOX, "xbox"), "romfs-patches-xbox-label") &&
+              EQ(input_prompts_folder(PROMPTS_XBOX, "auto"), "romfs-patches-xbox-label") &&
+              EQ(input_prompts_folder(PROMPTS_XBOX, NULL), "romfs-patches-xbox-label"),
+          "prompts: the Xbox folder by position for the Nintendo layout, by label for the others");
     CHECK(EQ(input_prompts_folder(PROMPTS_PLAYSTATION, "nintendo"), "romfs-patches-playstation") &&
-              EQ(input_prompts_folder(PROMPTS_PLAYSTATION, "xbox"), "romfs-patches-playstation") &&
-              EQ(input_prompts_folder(PROMPTS_PLAYSTATION, NULL), "romfs-patches-playstation"),
-          "prompts: one PlayStation folder whatever the layout (the mod draws the Switch positions)");
-    // The button mods draw the face buttons at the Switch positions: romfs-patches-xbox shows A as B
-    // (tools/make_prompts_folders.py copies the mods' files). It matches exactly where the layout puts A on the
-    // east button, which an Xbox pad labels B; elsewhere the menu warns.
+              EQ(input_prompts_folder(PROMPTS_PLAYSTATION, "xbox"), "romfs-patches-playstation-label") &&
+              EQ(input_prompts_folder(PROMPTS_PLAYSTATION, "auto"), "romfs-patches-playstation-label"),
+          "prompts: the PlayStation folder by position for the Nintendo layout, by label for the others");
+    // tools/make_prompts_folders.py draws Switch A as the east button's label in the by-position folders (B, circle)
+    // and as the south button's in the -label folders (A, cross): each must be where its layout presses A.
     input_map_reset();
     static const char *const layouts[] = {"nintendo", "xbox", "auto", "xbox_prompts"};
     for (int i = 0; i < 4; i++) {
-        int nintendo = input_pad_layout_pick(layouts[i], 0) == PAD_LAYOUT_NINTENDO;
-        int a_east = input_map_pad_buttons((uint8_t[PAD_COUNT]){[PAD_EAST] = 1}, input_pad_layout_pick(layouts[i], 0)) == 1ull << B_A;
-        CHECK(a_east == nintendo,
-              "prompts: only the Nintendo layout puts A on the button the mods draw it on");
+        int layout = input_pad_layout_pick(layouts[i], 0);
+        int by_position = !strstr(input_prompts_folder(PROMPTS_XBOX, layouts[i]), "-label");
+        uint64_t east = input_map_pad_buttons((uint8_t[PAD_COUNT]){[PAD_EAST] = 1}, layout);
+        uint64_t south = input_map_pad_buttons((uint8_t[PAD_COUNT]){[PAD_SOUTH] = 1}, layout);
+        CHECK((by_position ? east : south) == 1ull << B_A,
+              "prompts: each prompts folder draws A on the button its layout presses A with");
     }
     uint8_t pd[PAD_COUNT] = {0};
     pd[PAD_SOUTH] = pd[PAD_NORTH] = 1;

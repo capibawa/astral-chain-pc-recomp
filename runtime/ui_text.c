@@ -192,14 +192,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_PAD_LAYOUT_IN_USE] = "in use: %s",
     [UI_MENU_PROMPTS] = "Button prompts",
     [UI_MENU_PROMPTS_DESC] = "Which controller's buttons the game's prompts show. Nintendo (default): the game's "
-                             "own. Xbox and PlayStation: button mods that replace the Switch icons at the Switch "
-                             "positions (with Nintendo (A right) the right button shows B on Xbox). The game reads "
-                             "its prompts at start, so they change after a restart.",
-    [UI_MENU_PROMPTS_DESC_LAYOUT] = "Which controller's buttons the game's prompts show. Nintendo (default): "
-                             "the game's own. Xbox and PlayStation: button mods that replace the Switch icons at the "
-                             "Switch positions. They are drawn for the Switch positions: with Xbox (A bottom) the "
-                             "glyphs name the wrong buttons. The game reads its prompts at start, so they change "
-                             "after a restart.",
+                             "own. Xbox and PlayStation: each prompt names the button the button layout presses (with "
+                             "Nintendo (A right) the right button shows B on Xbox, circle on PlayStation). The game "
+                             "reads its prompts at start, so they change after a restart, also after the layout "
+                             "changes.",
     [UI_MENU_PROMPTS_NINTENDO] = "Nintendo", [UI_MENU_PROMPTS_XBOX] = "Xbox",
     [UI_MENU_PROMPTS_PLAYSTATION] = "PlayStation",
     [UI_MENU_PROMPTS_MISSING] = "prompt files missing: run the setup again",
@@ -575,14 +571,10 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_PAD_LAYOUT_IN_USE] = "сейчас: %s",
     [UI_MENU_PROMPTS] = "Подсказки кнопок",
     [UI_MENU_PROMPTS_DESC] = "Кнопки какого контроллера показывают подсказки игры. Nintendo (по умолчанию): как в "
-                             "самой игре. Xbox и PlayStation: моды, заменяющие значки Switch на позициях Switch "
-                             "(в Nintendo (A справа) правая кнопка показывает B на Xbox). Игра читает "
-                             "подсказки при запуске, так что они меняются после перезапуска.",
-    [UI_MENU_PROMPTS_DESC_LAYOUT] = "Кнопки какого контроллера показывают подсказки игры. "
-                             "Nintendo (по умолчанию): как в самой игре. Xbox и PlayStation: моды, заменяющие значки Switch на "
-                             "позициях Switch. Они нарисованы для позиций Switch: с Xbox (A снизу) значки называют "
-                             "не те кнопки. Игра читает подсказки при запуске, так что они меняются после "
-                             "перезапуска.",
+                             "самой игре. Xbox и PlayStation: каждая подсказка называет кнопку, которую нажимает "
+                             "раскладка (в Nintendo (A справа) правая кнопка показывает B на Xbox, кружок на "
+                             "PlayStation). Игра читает подсказки при запуске, так что они меняются после "
+                             "перезапуска, в том числе после смены раскладки.",
     [UI_MENU_PROMPTS_NINTENDO] = "Nintendo", [UI_MENU_PROMPTS_XBOX] = "Xbox",
     [UI_MENU_PROMPTS_PLAYSTATION] = "PlayStation",
     [UI_MENU_PROMPTS_MISSING] = "нет файлов подсказок: запустите установку снова",
@@ -900,14 +892,10 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_PAD_LAYOUT_IN_USE] = "em uso: %s",
     [UI_MENU_PROMPTS] = "Ícones de botões",
     [UI_MENU_PROMPTS_DESC] = "Os botões de qual controle os ícones do jogo mostram. Nintendo (padrão): os do "
-                             "próprio jogo. Xbox e PlayStation: mods que trocam os ícones do Switch "
-                             "nas posições do Switch (com Nintendo (A à direita) o botão da direita mostra B no "
-                             "Xbox). O jogo lê os ícones ao iniciar, então eles mudam depois de reiniciar.",
-    [UI_MENU_PROMPTS_DESC_LAYOUT] = "Os botões de qual controle os ícones do jogo mostram. "
-                             "Nintendo (padrão): os do próprio jogo. Xbox e PlayStation: mods que trocam os ícones do Switch "
-                             "nas posições do Switch. Eles são desenhados para as posições do Switch: com Xbox (A "
-                             "embaixo) os ícones nomeiam os botões errados. O jogo lê os ícones ao iniciar, então "
-                             "eles mudam depois de reiniciar.",
+                             "próprio jogo. Xbox e PlayStation: cada ícone mostra o botão que o layout aperta (com "
+                             "Nintendo (A à direita) o botão da direita mostra B no Xbox, círculo no PlayStation). "
+                             "O jogo lê os ícones ao iniciar, então eles mudam depois de reiniciar, também depois "
+                             "de trocar o layout.",
     [UI_MENU_PROMPTS_NINTENDO] = "Nintendo", [UI_MENU_PROMPTS_XBOX] = "Xbox",
     [UI_MENU_PROMPTS_PLAYSTATION] = "PlayStation",
     [UI_MENU_PROMPTS_MISSING] = "faltam os arquivos dos ícones: execute a instalação de novo",
@@ -1351,13 +1339,9 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_PAD_LAYOUT_IN_USE] = "使用中：%s",
     [UI_MENU_PROMPTS] = "按键提示",
     [UI_MENU_PROMPTS_DESC] = "游戏的按键提示显示哪种手柄的按键。Nintendo（默认）：游戏原有的提示。"
-                             "Xbox 和 PlayStation：模组，按 "
-                             "Switch 位置替换 Switch 图标（使用 Nintendo（A 在右）时右侧按键在 Xbox 上显示 B）。"
-                             "游戏在启动时读取按键提示，因此重启后才会改变。",
-    [UI_MENU_PROMPTS_DESC_LAYOUT] = "游戏的按键提示显示哪种手柄的按键。Nintendo（默认）：游戏原有的提示。"
-                             "Xbox 和 PlayStation："
-                             "模组，按 Switch 位置替换 Switch 图标。它们按 Switch 位置绘制：使用 Xbox（A 在下）"
-                             "时图标会标错按键。游戏在启动时读取按键提示，因此重启后才会改变。",
+                             "Xbox 和 PlayStation：每个提示显示按键布局实际按下的按键（使用 Nintendo（A 在右）时"
+                             "右侧按键在 Xbox 上显示 B，在 PlayStation 上显示圆圈）。"
+                             "游戏在启动时读取按键提示，因此重启后才会改变，更改布局后也是如此。",
     [UI_MENU_PROMPTS_NINTENDO] = "Nintendo",
     [UI_MENU_PROMPTS_XBOX] = "Xbox",
     [UI_MENU_PROMPTS_PLAYSTATION] = "PlayStation",

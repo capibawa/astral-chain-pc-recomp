@@ -715,19 +715,12 @@ static void row_walk_key(void) {
                     -1, n);
 }
 
-// Whether the loaded prompts are a Switch-positions mod with the Xbox layout in effect: their glyphs name the
-// wrong buttons. Shown in the row's description (right panel) instead of a note, so the row keeps its shape.
-static bool prompts_layout_warn(void) {
-    const char *layout = cfg_value("AC_PAD_LAYOUT"), *used = romfs_prompts();
-    const char *want = input_prompts_folder(input_prompts_pick(cfg_get("AC_PROMPTS"), layout), layout);
-    return want && used && !strcmp(want, used) && input_pad_layout() == PAD_LAYOUT_XBOX;
-}
-
-// The note under the prompts. The settings name a prompts folder (input_prompts_folder), but the game reads its UI archive once at start (romfs.c overlay_init). While the folder in
-// use differs: "files missing" when the setup did not write the one asked for, why it was left out at start
-// (damaged, a game resolution that is not 16:9, a RomFS mod with the same files, AC_ROMFS_PATCHES), else "prompts
-// change after restart", and only then *restart is set: a restart would bring the prompts asked for. NULL when
-// they match (a Switch-positions mod with the Xbox layout in effect warns through prompts_layout_warn instead).
+// The note under the prompts. The settings name a prompts folder for the pad layout (input_prompts_folder), but the
+// game reads its UI archive once at start (romfs.c overlay_init). While the folder in use differs: "files missing"
+// when the setup did not write the one asked for, why it was left out at start (damaged, a game resolution that is
+// not 16:9, a RomFS mod with the same files, AC_ROMFS_PATCHES), else "prompts change after restart" (also after
+// pad_layout moves between nintendo and the others), and only then *restart is set: a restart would bring the
+// prompts asked for. NULL when they match.
 static const char *prompts_note(bool *restart) {
     *restart = false;
     const char *layout = cfg_value("AC_PAD_LAYOUT"), *used = romfs_prompts();
@@ -791,7 +784,7 @@ static void tab_controls(float scale) {
     bool restart;
     const char *note = prompts_note(&restart);
     opt_choice("AC_PROMPTS", UI_MENU_PROMPTS, prompts, 3,
-               prompts_layout_warn() ? UI_MENU_PROMPTS_DESC_LAYOUT : UI_MENU_PROMPTS_DESC, note);
+               UI_MENU_PROMPTS_DESC, note);
     bool ask = restart && opt_button("##restart", UI_MENU_RESTART, UI_MENU_RESTART_DESC);
     opt_toggle("AC_MOTION", UI_MENU_MOTION, UI_MENU_MOTION_DESC);
     opt_slider("AC_RUMBLE_STRENGTH", UI_MENU_RUMBLE_STRENGTH, 0, 300, UI_MENU_RUMBLE_STRENGTH_DESC, 10, "%.0f %%");
