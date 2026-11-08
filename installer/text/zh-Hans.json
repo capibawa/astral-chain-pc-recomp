@@ -85,6 +85,7 @@
  "fonts.incomplete": "共享字体提取没有写出全部文件（{files}）。",
  "fonts.copy_failed": "无法将共享字体复制到 {path}：{detail}",
  "lift.failed": "游戏代码转换失败（退出代码 {code}）。详情：{log}",
+ "lift.bad_manifest": "游戏代码转换后的分块列表无法读取（{path}）；请重新运行安装程序。详情：{log}",
  "compile.failed": "编译 {game_exe} 失败（退出代码 {code}）。详情：{log}",
  "compile.exe_in_use": "{path} 正在使用中。请关闭游戏后重新运行安装程序。",
  "prepare.xlate_in_use": "{path} 正在被占用。请关闭游戏，结束上次残留的 ac_xlate 进程，再重新运行安装程序。",

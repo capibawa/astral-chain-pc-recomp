@@ -85,6 +85,7 @@
  "fonts.incomplete": "The shared font extraction did not write every file ({files}).",
  "fonts.copy_failed": "The shared fonts cannot be copied into {path}: {detail}",
  "lift.failed": "Translating the game code failed (exit code {code}). Details: {log}",
+ "lift.bad_manifest": "Translating the game code left an unreadable chunk list ({path}); run the setup again. Details: {log}",
  "compile.failed": "Compiling {game_exe} failed (exit code {code}). Details: {log}",
  "compile.exe_in_use": "{path} is in use. Close the game and run the installer again.",
  "prepare.xlate_in_use": "{path} is in use. Close the game, end any ac_xlate process left from an earlier run, then run the installer again.",

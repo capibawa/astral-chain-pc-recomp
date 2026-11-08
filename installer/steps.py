@@ -685,6 +685,23 @@ def exefs_status(ctx):
     return ctx.dest / 'build-cache' / 'exefs.status'
 
 
+def bad_manifest(gen):
+    """The first module manifest.json under gen that the compile could not read a chunk list from (missing, zeroed,
+    truncated, not JSON, or JSON without a non-empty "chunks" / "files" list, as tools/build_game.py chunk_files
+    reads it), None when both are usable."""
+    for mod in ('main', 'sdk'):
+        path = gen / mod / 'manifest.json'
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return path
+        entries = data if isinstance(data, list) else data.get('chunks', data.get('files')) if isinstance(data, dict) \
+            else None
+        if not isinstance(entries, list) or not entries:
+            return path
+    return None
+
+
 class Lift(Step):
     id = 'lift'
     transient = True
@@ -700,15 +717,7 @@ class Lift(Step):
             return False
         # A previous run can leave zeroed or truncated manifests behind (killed process, disk hiccup): the compile
         # would die on them, so treat them as not current and lift again.
-        for mod in ('main', 'sdk'):
-            try:
-                entries = json.loads((gen / mod / 'manifest.json').read_text())
-                entries = entries if isinstance(entries, list) else entries.get('chunks', entries.get('files'))
-                if not entries:
-                    return False
-            except (OSError, ValueError):
-                return False
-        return True
+        return bad_manifest(gen) is None
 
     def run(self, ctx):
         # gen/ of the last run stays in the install folder: gen.py rewrites only the chunks whose C changed (and removes
@@ -752,14 +761,9 @@ class Lift(Step):
             raise InstallError('lift.failed', code=code, log=str(log))
         # The compile reads <mod>/manifest.json next: a zeroed or truncated file (killed run, disk hiccup) would
         # only fail there, so validate now and fail at this step with its log instead.
-        for mod in ('main', 'sdk'):
-            try:
-                entries = json.loads((gen / mod / 'manifest.json').read_text())
-                entries = entries if isinstance(entries, list) else entries.get('chunks', entries.get('files'))
-                if not entries:
-                    raise ValueError('no chunks')
-            except (OSError, ValueError) as e:
-                raise InstallError('lift.failed', code=0, log=str(log)) from e
+        bad = bad_manifest(gen)
+        if bad is not None:
+            raise InstallError('lift.bad_manifest', path=str(bad), log=str(log))
         for warn, log in skipped.items():
             rep.warning(warn, log=str(log))
         (gen / STAMP).write_text(ctx.keys['lift'] + '\n')

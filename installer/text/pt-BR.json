@@ -85,6 +85,7 @@
  "fonts.incomplete": "A extração das fontes compartilhadas não gravou todos os arquivos ({files}).",
  "fonts.copy_failed": "Não foi possível copiar as fontes compartilhadas para {path}: {detail}",
  "lift.failed": "Falha ao traduzir o código do jogo (código de saída {code}). Detalhes: {log}",
+ "lift.bad_manifest": "A tradução do código do jogo deixou uma lista de blocos ilegível ({path}); execute a instalação novamente. Detalhes: {log}",
  "compile.failed": "Falha ao compilar o {game_exe} (código de saída {code}). Detalhes: {log}",
  "compile.exe_in_use": "{path} está em uso. Feche o jogo e execute o instalador de novo.",
  "prepare.xlate_in_use": "{path} está em uso. Feche o jogo, encerre qualquer processo ac_xlate que tenha sobrado de uma execução anterior e execute o instalador de novo.",
