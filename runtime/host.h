@@ -279,6 +279,7 @@ int res_dlss_mode(const char *mode);                       // upscaling changed 
 int res_temporal_at_start(void);                           // the settings at start run DLAA or upscale a smaller scene
 const char *res_output_asked(void);                        // output_res as read at start ("" before; may be "auto")
 void res_auto_next(unsigned out[2]);                       // the size output_res = auto would take at the next start
+void res_auto_drop(void);                                  // auto's screen size given up: nothing temporal can run
 int res_scene_live(void);                                  // the scene patch set is on: upscaling can change live
 void res_sizes(unsigned out[2], unsigned scene[2]);      // the output and scene sizes in effect (the game's own
                                                            // until res_init switched the sets on)

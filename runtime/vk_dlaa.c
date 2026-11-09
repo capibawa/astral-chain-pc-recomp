@@ -233,7 +233,7 @@ static int utf8_to_wide(const char *in, wchar_t *out, size_t cap) {
 }
 #endif
 
-void vk_dlaa_init(void) {
+static void ngx_init(void) {
     if (!vk_dlaa_wanted() || !core_load()) return;
 #ifdef _WIN32
     wchar_t wdir[MAX_PATH];
@@ -269,6 +269,22 @@ void vk_dlaa_init(void) {
     N.available = avail != 0;
     rt_log("dlaa: NGX up; DLSS %s%s", avail ? "available" : "NOT available (is " DLSS_MODEL " next to the executable?)",
            driver ? "; the driver needs an update" : "");
+}
+
+static int ngx_settled;   // vk_dlaa_init is through: N.available is final for this run
+
+// A setting asked for DLSS and NGX said this GPU cannot run it (or NGX never came up).
+int vk_dlaa_ruled_out(void) { return ngx_settled && vk_dlaa_wanted() && !N.available; }
+
+// NGX, and then what its answer means for output_res = auto. resolution.c decided before the device existed, from the
+// DLSS model's file alone, that DLAA or DLSS would run, and auto took the screen's size for it. Where DLSS cannot run
+// and upscaling is off or dlss (auto and fsr3 still upscale, with FSR 3), nothing temporal is left: the size goes back
+// to 1920x1080 (resolution.c res_auto_drop) before the game makes its render targets.
+void vk_dlaa_init(void) {
+    ngx_init();
+    ngx_settled = 1;
+    const char *up = cfg_value("AC_UPSCALING");
+    if (vk_dlaa_ruled_out() && (!strcmp(up, "off") || !strcmp(up, "dlss"))) res_auto_drop();
 }
 
 // ---------------------------------------------------------------- where DLAA runs in Astral Chain's frame

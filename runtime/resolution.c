@@ -71,8 +71,13 @@ static struct {
 // The scene size is decided before the device exists, so NGX cannot be asked yet. NGX loads DLSS from nvngx_dlss.dll
 // next to astralchain.exe on Windows, libnvidia-ngx-dlss.so.<version> next to the executable on Linux (vk_dlaa.c
 // vk_dlaa_init): without that file DLSS never runs, and a DLSS mode would leave the game's plain scaling at 33..67 % of
-// the output. After the TotK Recomp's resolution.c (same author, MIT).
+// the output. After the TotK Recomp's resolution.c (same author, MIT). Once NGX has answered (vk_dlaa.c
+// vk_dlaa_ruled_out) the file no longer counts where DLSS cannot run: the menu then shows what output_res = auto will take
+// at the next start as it will really end up.
+int vk_dlaa_ruled_out(void);   // vk_dlaa.c, whose header pulls in Vulkan
+
 static int dlss_dll(void) {
+    if (vk_dlaa_ruled_out()) return 0;
 #ifdef _WIN32
     char exe[1024], path[1024 + 32];
     if (!plat_exe_path(exe, sizeof exe)) return 1;
@@ -121,8 +126,9 @@ static const char *start_mode(void) {
 // A temporal mode runs from the start (start_mode, quietly): DLAA where its model is there, or upscaling on and able to
 // run with the scene patch set there to shrink the scene. output_res = auto (res_auto) raises the game's resolution to
 // the screen then, so DLAA anti-aliases at the screen's size, an upscaler writes it, and the window only copies. A GPU
-// without DLSS learns that only once NGX is asked (vk_dlaa_init), after the size is fixed: there DLAA falls back to
-// SMAA at the screen's size until output_res is set.
+// without DLSS learns that only once NGX is asked (vk_dlaa.c vk_dlaa_init), after this answer: where nothing temporal
+// is left then, vk_dlaa_init takes the size back to 1920x1080 (res_auto_drop), so DLAA's fallback to SMAA does not run
+// at the screen's size.
 int res_temporal_at_start(void) {
     int dll = dlss_dll();
     const char *up = cfg_value("AC_UPSCALING");
@@ -414,22 +420,24 @@ void res_auto_next(unsigned out[2]) {
     out[0] = next[0], out[1] = next[1];
 }
 
-static char asked[16];   // output_res as res_size read it
+static char asked[16];        // output_res as res_size read it
+static unsigned size_w, size_h; // the size res_size decided (0 until then)
+static int auto_raised;         // output_res = auto took the screen's size above 1920x1080
 
 const char *res_output_asked(void) { return asked; }
 
 static void res_size(unsigned *w, unsigned *h) {
-    static unsigned sw, sh;
-    if (!sw) {
+    if (!size_w) {
         const char *o = cfg_value("AC_OUTPUT_RES");
         snprintf(asked, sizeof asked, "%s", o);
-        if (!strcmp(o, "auto")) o = res_auto();
-        sw = 1920, sh = 1080;
+        if (!strcmp(o, "auto")) o = res_auto(), auto_raised = strcmp(o, "1920x1080") != 0;
+        unsigned sw = 1920, sh = 1080;
         if (!res_output_grid(o, &sw, &sh) && strcmp(o, "1920x1080"))
             rt_log("resolution: output_res = %s is not a 16:9 size of 32n x 18n from 1280x720 to 3840x2160; "
                    "1920x1080", o);
+        size_h = sh, size_w = sw;
     }
-    *w = sw, *h = sh;
+    *w = size_w, *h = size_h;
 }
 
 // The render-target budget for w x h: the game's own up to 1080p's pixel count, which it fits; above, the measured use
@@ -614,6 +622,37 @@ int res_dlss_mode(const char *m) {
 
 int res_scene_live(void) { return R.live; }
 
+static PlatMutex init_lock = PLAT_MUTEX_INIT;   // res_init (boot) against res_auto_drop (vk_init, on the prewarm thread)
+
+// output_res = auto took the screen's size because the settings asked for DLAA or DLSS, decided from the DLSS model's
+// file before the device existed; NGX has now said DLSS cannot run on this GPU and nothing else temporal will
+// (vk_dlaa.c vk_dlaa_init). Back to 1920x1080, or the run would draw SMAA at the screen's size, plain supersampling at
+// several times the cost. The device is made before the game makes its render targets, and the res set's sites read
+// the patch page each time they run, so rewriting the page is enough; the render-target budget and the application
+// pool keep the larger size, unused. With the scene set on, the scene follows for the current mode.
+void res_auto_drop(void) {
+    plat_mutex_lock(&init_lock);
+    if (auto_raised) {
+        auto_raised = 0;
+        rt_log("resolution: output_res auto: DLSS cannot run on this GPU and nothing else temporal is set: 1920x1080, "
+               "not %ux%u",
+               size_w, size_h);
+        size_w = 1920, size_h = 1080;
+        if (rt_patch_enabled(rt_patch_set("res"))) {
+            uint32_t page[2] = {size_w, size_h};
+            memcpy((uint8_t *)rt_patch_page() + RES_PAGE, page, sizeof page);
+        }
+        if (R.on) {
+            unsigned g[2] = {size_w, size_h};
+            R.ow = size_w, R.oh = size_h;
+            scene_for(R.dlss_k, g, &R.sw, &R.sh);
+            scene_page(R.sw, R.sh);
+            size_asked = pack(R.sw, R.sh);
+        }
+    }
+    plat_mutex_unlock(&init_lock);
+}
+
 static unsigned page_size(int i) {
     float v;
     memcpy(&v, (const uint8_t *)rt_patch_page() + 16 + 4 * i, sizeof v);
@@ -624,7 +663,7 @@ static unsigned page_size(int i) {
 void rt_res_scene_w1(Cpu *c) { c->x[1] = page_size(0); }
 void rt_res_scene_h2(Cpu *c) { c->x[2] = page_size(1); }
 
-void res_init(void) {
+static void init_sets(void) {
     res_pick();
     res_shadow_range();
     if (!output_set()) {   // 1.0.1: the res set took output_res above, the scene set scales the scene for DLSS
@@ -681,6 +720,12 @@ void res_init(void) {
     shadow_init(page);
     rt_log("resolution: output %ux%u, scene %ux%u%s; texture heap +%llu KiB", R.ow, R.oh, R.sw, R.sh,
            scene_on ? "" : " (the game's own 5/6 of the output)", (unsigned long long)res_heap_extra_kib());
+}
+
+void res_init(void) {
+    plat_mutex_lock(&init_lock);
+    init_sets();
+    plat_mutex_unlock(&init_lock);
 }
 
 // DLSS upscaling: textures are sampled for the output's resolution, not the scene's (NVIDIA's DLSS guide: a mip bias
