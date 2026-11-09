@@ -319,7 +319,7 @@ static struct {
     } sizes[5], *last;           // last: the one the previous DLAA frame ran with
     VkImage last_color[2];       // the targets DLAA ran on, latest first: another one means a new history
     NgxParam *params;
-    int failed, reset;
+    int failed, fsr3_failed, reset;   // failed: DLSS (and DLAA) in this run; fsr3_failed: AMD FSR 3
     uint64_t evals, frames_missed;
     // jitter (vk_dlaa_viewport)
     VkImage jdepth;              // the scene depth of the last frame DLAA ran on: passes drawing with it are jittered
@@ -370,17 +370,20 @@ int vk_dlaa_swap_same;
 enum { TAA_NONE, TAA_DLSS, TAA_FSR3 };
 static int taa_pick(const char **mode) {
     const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
+    // each upscaler fails on its own (dl_fail): auto goes on to FSR 3 when DLSS failed in this run, and an FSR 3
+    // failure leaves DLAA and DLSS as they were
     int dlss = N.available && !D.failed;
     *mode = "dlaa";
-    if (D.failed) return TAA_NONE;
     if (!strcmp(aa, "dlaa") && dlss) return TAA_DLSS;
     *mode = cfg_value("AC_UPSCALING_QUALITY");
-    if (!strcmp(up, "dlss") || (!strcmp(up, "auto") && dlss)) return dlss ? TAA_DLSS : TAA_NONE;
-    if (!strcmp(up, "fsr3") || !strcmp(up, "auto")) return vk_fsr3_ready() ? TAA_FSR3 : TAA_NONE;
+    if (!strcmp(up, "dlss")) return dlss ? TAA_DLSS : TAA_NONE;
+    if (!strcmp(up, "auto") && dlss) return TAA_DLSS;
+    if (!strcmp(up, "fsr3") || !strcmp(up, "auto")) return !D.fsr3_failed && vk_fsr3_ready() ? TAA_FSR3 : TAA_NONE;
     return TAA_NONE;
 }
 
-static int dl_active(void) { return !D.failed && D.on; }
+// The frame's upscaler runs: switched on (vk_dlaa_frame) and not failed since.
+static int dl_active(void) { return D.on && !(D.fsr3 ? D.fsr3_failed : D.failed); }
 
 int vk_dlaa_dlss_state(void) {
     if (N.available && !D.failed) return 1;
@@ -408,8 +411,10 @@ static int output_sized(const VkExecTarget *c) {
 }
 
 static void dl_fail(const char *what, NgxResult r) {
-    rt_log("dlaa: %s failed (%08x): DLAA off for this run", what, (unsigned)r);
-    D.failed = 1;
+    // the upscaler of the frame that failed; the other one stays usable (taa_pick)
+    rt_log("dlaa: %s failed (%08x): %s off for this run", what, (unsigned)r, D.fsr3 ? "AMD FSR 3" : "DLSS and DLAA");
+    if (D.fsr3) D.fsr3_failed = 1;
+    else D.failed = 1;
 }
 
 static int image2d(uint32_t w, uint32_t h, VkFormat f, VkImageUsageFlags usage, VkImage *img, VmaAllocation *mem,
@@ -1301,7 +1306,7 @@ void vk_dlaa_pass(VkExec *ex) {
             D.done = D.post = 1, D.comp_ok = 0;
         } else if (!target_scaled(D.color.width)) {
             D.done = 1, evaluate(ex, NULL, NULL);
-            D.post = !D.failed, D.comp_ok = 0;
+            D.post = dl_active(), D.comp_ok = 0;
         }
         return;
     }
