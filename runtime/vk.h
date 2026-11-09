@@ -114,6 +114,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
 // (vk_dlaa.c sharpens DLAA, DLSS and FSR 3 with it before the HUD). 1 = recorded; 0 = nothing (vk_fsr_rcas_on is 0).
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h);
 int vk_fsr_rcas_on(void);   // sharpness above 0, FSR's pipelines made and not the AC_UPSCALER=bilinear test knob
+int vk_fsr_present_upscales(void);   // the last present enlarged the picture with EASU: RCAS belongs after it
 void vk_fsr_release(void);   // before the device goes away
 // Colour adjustment on the present (vk_color.c): with AC_COLOR_* away from their defaults, records a pass that writes
 // src's crop rectangle {x, y, w, h}, adjusted, into an RGBA16F image of that size in GENERAL and returns it (the caller

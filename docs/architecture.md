@@ -193,7 +193,8 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   RCAS on the composite as the next pass begins, and every later draw of the frame that samples the composite reads the
   sharpened copy (`vk_dlaa_swap_same`): SMAA's passes and the output pass the HUD is drawn over. A frame sharpened so
   makes the present scale without RCAS, or copy at 1:1 (`vk_dlaa_presharpened`); a frame without the scene is
-  sharpened by the present's FSR 1. The present always uses FSR 1 where it scales; `upscaler` is gone (an old
+  sharpened by the present's FSR 1, and so is every frame while the present enlarges the picture (`vk_fsr.c`
+  `vk_fsr_present_upscales`): RCAS follows EASU there, never the other way round. The present always uses FSR 1 where it scales; `upscaler` is gone (an old
   `upscaler = bilinear` reads as `sharpness = 0`, `cfg.c` `migrate_upscaler`; `AC_UPSCALER=bilinear` remains a test
   knob).
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.

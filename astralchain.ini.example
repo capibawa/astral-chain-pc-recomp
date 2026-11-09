@@ -168,8 +168,9 @@
 # Sharpening (AMD RCAS) of the 3D scene from 0 (off: no RCAS pass at all) to 100; 50 is the default. In every
 # anti-aliasing and upscaling mode it runs after the game's tonemap and before it draws its HUD, so the HUD stays crisp;
 # screens without the 3D scene (the title, loads) are sharpened as AMD FSR 1 fits them to the window. The window step
-# scales with FSR 1 when the picture is not the window's size and copies it otherwise. Changes while the game runs take
-# effect at once. An upscaler = bilinear line from an older version is read as sharpness = 0.
+# scales with FSR 1 when the picture is not the window's size and copies it otherwise. A window larger than the picture
+# is the exception: there the sharpening runs after FSR 1 enlarged the picture, HUD included, because sharpening ahead
+# of the enlargement would enlarge its halos. Changes while the game runs take effect at once. An upscaler = bilinear line from an older version is read as sharpness = 0.
 # sharpness = 50
 # Picture shape when the window's shape differs from the game resolution's (a 16:9 picture in a 21:9 fullscreen
 # window): fit, the default, keeps the shape, with black bars at the sides or above and below, so a 16:9 game in a wider

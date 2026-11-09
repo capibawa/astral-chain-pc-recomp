@@ -200,6 +200,13 @@ static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageV
     vkCmdPushConstants(cb, F.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 32, pc);
 }
 
+// The last present enlarged the picture with EASU. RCAS is made to run on EASU's output, not ahead of it: sharpened
+// first, EASU would enlarge the sharpening's halos. So vk_dlaa.c sharpens before the HUD only while this is 0 (the
+// window copies the picture or reduces it), and otherwise leaves RCAS to the present, after EASU.
+static volatile int32_t present_up;
+
+int vk_fsr_present_upscales(void) { return __atomic_load_n(&present_up, __ATOMIC_RELAXED); }
+
 int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
                   VkImage dst, const int out[4]) {
     int cw = crop[2], ch = crop[3];
@@ -207,6 +214,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     if (bilinear() || !fmt) return 0;
     int down = dw < (uint32_t)cw || dh < (uint32_t)ch;   // a smaller window: the area downscale in EASU's place
     int same = dw + 2 >= (uint32_t)cw && dw <= (uint32_t)cw + 2 && dh + 2 >= (uint32_t)ch && dh <= (uint32_t)ch + 2;
+    __atomic_store_n(&present_up, !down && !same, __ATOMIC_RELAXED);
     VkCtx *c = vk_ctx();
     if (!ready(c) || !ensure_images(c, dw, dh)) return 0;
     slot %= SLOTS;
