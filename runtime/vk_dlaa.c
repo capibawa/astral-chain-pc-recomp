@@ -375,6 +375,10 @@ static int taa_pick(const char **mode) {
     int dlss = N.available && !D.failed;
     *mode = "dlaa";
     if (!strcmp(aa, "dlaa") && dlss) return TAA_DLSS;
+    // Upscaling shrinks the scene through the scene patch set, which is switched on at start only when a setting then
+    // asks for something temporal (resolution.c scene_only_init). Chosen later, it waits for the restart the menu
+    // names: started at once it would jitter and resolve the scene at the game's size, at a cost and for no gain.
+    if (rt_patch_set("scene") >= 0 && !res_scene_live()) return TAA_NONE;
     *mode = cfg_value("AC_UPSCALING_QUALITY");
     if (!strcmp(up, "dlss")) return dlss ? TAA_DLSS : TAA_NONE;
     if (!strcmp(up, "auto") && dlss) return TAA_DLSS;
