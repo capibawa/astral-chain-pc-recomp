@@ -488,8 +488,17 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_ANISO_DESC] = "Анизотропная фильтрация текстур поверхностей: земля, дороги и стены под острым углом остаются чёткими вдали, а не размываются. Игра: уровень, который запрашивает игра, как на Switch. Авто: 16x при масштабе 3D-отрисовки 1440p, удвоенный уровень игры при 2160p, иначе уровень игры.",
     [UI_MENU_ANISO_GAME] = "Игра",
     [UI_MENU_ANISO_AUTO] = "Авто",
-    [UI_MENU_SHARPNESS] = "Резкость FSR",
-    [UI_MENU_SHARPNESS_DESC] = "Повышение резкости после масштабирования FSR; 0 выключает его.",
+    [UI_MENU_SHARPNESS] = "Резкость",
+    [UI_MENU_SHARPNESS_DESC] = "Повышение резкости 3D-сцены (AMD RCAS) в любом режиме сглаживания и масштабирования. "
+                               "Выполняется до отрисовки интерфейса, поэтому он остаётся чётким; 0 полностью выключает. "
+                               "Действует сразу.",
+    [UI_MENU_AA] = "Сглаживание",
+    [UI_MENU_AA_OFF] = "Выкл.", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
+    [UI_MENU_UPSCALING] = "Временное масштабирование",
+    [UI_MENU_UPSCALING_OFF] = "Выкл.", [UI_MENU_UPSCALING_AUTO] = "Автоматически",
+    [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS", [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
+    [UI_MENU_UPSCALING_BY_DLAA] = "DLAA запускает NVIDIA DLSS в полном разрешении",
+    [UI_MENU_UPSCALING_QUALITY] = "Качество масштабирования",
     [UI_MENU_COLOR] = "Цвет",
     [UI_MENU_COLOR_PRESET] = "Цветовой профиль",
     [UI_MENU_COLOR_PRESET_DESC] = "Задаёт четыре значения ниже. «Яркий»: больше контраста и насыщенности, тени немного "
@@ -894,8 +903,17 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_ASPECT_DESC] = "Quando o formato da janela difere do da resolução do jogo (uma imagem 16:9 numa tela "
                             "21:9): manter o formato da imagem com barras pretas ou esticá-la sobre a janela.",
     [UI_MENU_ASPECT_FIT] = "Barras pretas", [UI_MENU_ASPECT_STRETCH] = "Esticar",
-    [UI_MENU_SHARPNESS] = "Nitidez do FSR",
-    [UI_MENU_SHARPNESS_DESC] = "Aumento de nitidez após a ampliação do FSR; 0 desliga.",
+    [UI_MENU_SHARPNESS] = "Nitidez",
+    [UI_MENU_SHARPNESS_DESC] = "Nitidez AMD RCAS da cena 3D, em todos os modos de antisserrilhado e de ampliação. Roda "
+                               "antes de o HUD ser desenhado, então o HUD continua nítido; 0 desliga por completo. Vale "
+                               "na hora.",
+    [UI_MENU_AA] = "Antisserrilhado",
+    [UI_MENU_AA_OFF] = "Desligado", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
+    [UI_MENU_UPSCALING] = "Ampliação temporal",
+    [UI_MENU_UPSCALING_OFF] = "Desligado", [UI_MENU_UPSCALING_AUTO] = "Automático",
+    [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS", [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
+    [UI_MENU_UPSCALING_BY_DLAA] = "O DLAA roda o NVIDIA DLSS na resolução cheia",
+    [UI_MENU_UPSCALING_QUALITY] = "Qualidade da ampliação",
 
     [UI_MENU_FPS_LIMIT] = "Taxa de quadros",
     [UI_MENU_FPS_LIMIT_DESC] = "60 FPS usa o patch de 60 fps do jogo; 30 FPS o desliga. Lido na hora.",
@@ -1328,8 +1346,16 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_FOV] = "视野",
     [UI_MENU_FOV_DESC] = "镜头能看到多大范围，以游戏自身视野的百分比表示。"
                           "游戏中垂直视角为 50 度；过场动画保持原有构图。",
-    [UI_MENU_SHARPNESS] = "FSR 锐度",
-    [UI_MENU_SHARPNESS_DESC] = "FSR 缩放后的锐化强度；0 为关闭。",
+    [UI_MENU_SHARPNESS] = "锐度",
+    [UI_MENU_SHARPNESS_DESC] = "对 3D 场景进行 AMD RCAS 锐化，适用于所有抗锯齿和超分辨率模式。"
+                               "在绘制 HUD 之前进行，因此 HUD 保持清晰；0 为完全关闭。立即生效。",
+    [UI_MENU_AA] = "抗锯齿",
+    [UI_MENU_AA_OFF] = "关", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
+    [UI_MENU_UPSCALING] = "时域超分辨率",
+    [UI_MENU_UPSCALING_OFF] = "关", [UI_MENU_UPSCALING_AUTO] = "自动",
+    [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS", [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
+    [UI_MENU_UPSCALING_BY_DLAA] = "DLAA 以全分辨率运行 NVIDIA DLSS",
+    [UI_MENU_UPSCALING_QUALITY] = "超分辨率质量",
     [UI_MENU_COLOR] = "色彩",
     [UI_MENU_COLOR_PRESET] = "色彩配置",
     [UI_MENU_COLOR_PRESET_DESC] = "同时设置下面四项。鲜艳：对比度和饱和度更高，暗部略微提亮（为 OLED 屏幕调校）。"
