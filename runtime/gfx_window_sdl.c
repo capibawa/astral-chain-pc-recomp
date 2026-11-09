@@ -137,14 +137,23 @@ int gfx_window_monitor_size(int *w, int *h) {
     return 1;
 }
 
+static int video_up(void);
+
+static void primary_height(void *arg) {
+    const SDL_DisplayMode *m = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
+    *(int *)arg = m ? (int)(m->h * m->pixel_density + 0.5f) : 0;
+}
+
 int gfx_display_height(void) {
     int w, h;
     if (gfx_window_monitor_size(&w, &h)) return h;
-    // Before the window: the primary display, if SDL's video is up already (it is brought up on the window's thread,
-    // not here)
-    if (!SDL_WasInit(SDL_INIT_VIDEO)) return 0;
-    const SDL_DisplayMode *m = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
-    return m ? (int)(m->h * m->pixel_density + 0.5f) : 0;
+    // Before the window (vk_texture.c render_scale runs from res_init, ahead of the Vulkan instance): the primary
+    // display. SDL's video is brought up now if it is not yet, on the window's thread as always (video_up), and the
+    // question is asked there: a height of 0 here would fix ssaa = auto at the game's size for the whole run.
+    if (!video_up()) return 0;
+    int height = 0;
+    run_on_window(primary_height, &height);
+    return height;
 }
 
 static void density_update(void) {
