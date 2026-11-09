@@ -126,7 +126,9 @@ int vk_fsr_rcas_on(void) { return sharpness() > 0 && !bilinear() && ready(vk_ctx
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h) {
     int sharp = sharpness();
     if (!vk_fsr_rcas_on()) return 0;
-    float rcas[8] = {(float)w, (float)h, (float)(100 - sharp) / 50.0f, 0, 0, 0, 0, 0};
+    // the whole source: fsr_rcas.comp clamps its reads to the rectangle in the last four constants, and an empty one
+    // collapses every read onto one texel
+    float rcas[8] = {(float)w, (float)h, (float)(100 - sharp) / 50.0f, 0, 0, 0, (float)w, (float)h};
     bind_pass(cb, F.rcas, src, dst, rcas);
     vkCmdDispatch(cb, (w + 15) / 16, (h + 15) / 16, 1);
     return 1;
