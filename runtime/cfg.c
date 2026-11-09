@@ -852,8 +852,23 @@ int cfg_migrate_deck_res(int deck) {
     return reset ? 2 : 1;
 }
 
+// The old anti-aliasing keys are read from astralchain.ini only, where migrate_aa turns them into the new ones. Set in
+// the environment they do nothing any more, and being known keys they would be passed over in silence: a script that
+// still sets AC_DLAA=1 would test SMAA without a word. Said once at start, with the variables that replace them.
+static void retired_env(void) {
+    static const char *const old[] = {"DLAA", "DLSS", "SMAA", "FXAA", "TEMPORAL_UPSCALER"};
+    for (size_t i = 0; i < sizeof old / sizeof *old; i++) {
+        char var[64];
+        snprintf(var, sizeof var, PREFIX "%s", old[i]);
+        if (getenv(var))
+            rt_log("cfg: %s is no longer read from the environment: set " PREFIX "ANTI_ALIASING (off, smaa, dlaa), "
+                   PREFIX "UPSCALING (off, auto, dlss, fsr3) and " PREFIX "UPSCALING_QUALITY instead", var);
+    }
+}
+
 void cfg_init(void) {
     load_ini();
+    retired_env();
     if (profile_of())
         rt_log("cfg: device profile Steam Deck: defaults for the keys astralchain.ini does not set (AC_DEVICE_PROFILE=desktop "
                "turns it off)");
