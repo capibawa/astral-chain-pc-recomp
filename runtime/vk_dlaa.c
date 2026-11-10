@@ -63,6 +63,7 @@ typedef NgxResult (*PFN_DestroyParams)(NgxParam *);
 typedef NgxResult (*PFN_Create)(VkCommandBuffer, int feature, NgxParam *, NgxHandle **);
 typedef NgxResult (*PFN_Evaluate)(VkCommandBuffer, const NgxHandle *, const NgxParam *, void *callback);
 typedef NgxResult (*PFN_Release)(NgxHandle *);
+typedef NgxResult (*PFN_Shutdown)(VkDevice);
 
 static struct {
     void *core;   // the NGX core library (an HMODULE on Windows)
@@ -73,7 +74,9 @@ static struct {
     PFN_Create create;
     PFN_Evaluate evaluate;
     PFN_Release release;
+    PFN_Shutdown shutdown;   // NVSDK_NGX_VULKAN_Shutdown1; NULL in a core without it
     int tried, loaded, available;
+    int inited;              // NVSDK_NGX_VULKAN_Init_Ext2 succeeded: vk_dlaa_release shuts NGX down
     int wanted;   // -1 not read yet
 } N = {.wanted = -1};
 
@@ -156,6 +159,7 @@ static int core_load(void) {
     FN(create, "NVSDK_NGX_VULKAN_CreateFeature");
     FN(evaluate, "NVSDK_NGX_VULKAN_EvaluateFeature");
     FN(release, "NVSDK_NGX_VULKAN_ReleaseFeature");
+    FN(shutdown, "NVSDK_NGX_VULKAN_Shutdown1");
 #undef FN
     if (!N.init || !N.req_ext || !N.caps || !N.alloc_params || !N.create || !N.evaluate || !N.release) {
         rt_log("dlaa: the NGX core %s lacks Vulkan entry points: DLAA off", path);
@@ -259,6 +263,7 @@ static void ngx_init(void) {
         rt_log("dlaa: NGX init failed (%08x): DLAA off", (unsigned)r);
         return;
     }
+    N.inited = 1;
     if (!vtable_ok()) return;
     NgxParam *caps = NULL;
     int avail = 0, driver = 0;
@@ -452,24 +457,40 @@ static int image2d(uint32_t w, uint32_t h, VkFormat f, VkImageUsageFlags usage, 
     return vkCreateImageView(c->device, &vi, NULL, view) == VK_SUCCESS;
 }
 
-static void free_size(struct Size *e) {
-    const VkCtx *c = vk_ctx();
-    // an evicted size or a new model: the images may still be in flight. vkDeviceWaitIdle needs every queue externally
-    // synchronised, and the present and the upload threads submit too.
-    vk_queue_lock();
-    vkDeviceWaitIdle(c->device);
+// DLSS features whose size was freed while submissions that evaluate them may still be on the GPU: each is released
+// once the timeline has passed the newest value issued when it was retired (features_sweep, at each present). The
+// replay records one submission at a time and the present runs on the same thread in queue order (vk_backend.c
+// replay_main), so nothing recorded later can use a retired feature.
+static struct { NgxHandle *feat; uint64_t after; } dead_feat[16];
+
+static void features_sweep(int all) {
+    uint64_t done = vk_sync_fence_done();
+    for (int i = 0; i < 16; i++)
+        if (dead_feat[i].feat && (all || dead_feat[i].after <= done)) N.release(dead_feat[i].feat), dead_feat[i].feat = NULL;
+}
+
+static void retire_feature(NgxHandle *f) {
+    for (int i = 0; i < 16; i++)
+        if (!dead_feat[i].feat) {
+            dead_feat[i].feat = f, dead_feat[i].after = vk_sync_issued();
+            return;
+        }
+    // no room (sixteen sizes retired within a few frames): the slow way, wait for the GPU and release everything
+    vk_queue_lock();   // vkDeviceWaitIdle needs every queue externally synchronised; other threads submit too
+    vkDeviceWaitIdle(vk_ctx()->device);
     vk_queue_unlock();
-    if (e->out_view) vkDestroyImageView(c->device, e->out_view, NULL);
-    if (e->mv_view) vkDestroyImageView(c->device, e->mv_view, NULL);
-    if (e->out) vmaDestroyImage(c->vma, e->out, e->out_mem);
-    if (e->mv) vmaDestroyImage(c->vma, e->mv, e->mv_mem);
-    if (e->sharp_view) vkDestroyImageView(c->device, e->sharp_view, NULL);
-    if (e->sharp) vmaDestroyImage(c->vma, e->sharp, e->sharp_mem);
-    for (int i = 0; i < 4; i++) {
-        if (e->x_view[i]) vkDestroyImageView(c->device, e->x_view[i], NULL);
-        if (e->x[i]) vmaDestroyImage(c->vma, e->x[i], e->x_mem[i]);
-    }
-    if (e->feat) N.release(e->feat);
+    features_sweep(1);
+    N.release(f);
+}
+
+// An evicted size, a new model or an upscaler that no longer runs. The images may still be in flight, so they go to
+// the deferred destruction of vk_memory.c and the feature to dead_feat: no wait for the device in the middle of a
+// frame, which stalled the replay once per entry.
+static void free_size(struct Size *e) {
+    vk_defer_view(e->out_view), vk_defer_view(e->mv_view), vk_defer_view(e->sharp_view);
+    vk_defer_image(e->out, e->out_mem), vk_defer_image(e->mv, e->mv_mem), vk_defer_image(e->sharp, e->sharp_mem);
+    for (int i = 0; i < 4; i++) vk_defer_view(e->x_view[i]), vk_defer_image(e->x[i], e->x_mem[i]);
+    if (e->feat) retire_feature(e->feat);
     memset(e, 0, sizeof *e);
 }
 
@@ -588,13 +609,8 @@ static struct {
     uint32_t w, h;
 } NS;
 
-static void native_free(void) {
-    const VkCtx *c = vk_ctx();
-    vk_queue_lock();   // the image may still be in flight (as free_size)
-    vkDeviceWaitIdle(c->device);
-    vk_queue_unlock();
-    if (NS.view) vkDestroyImageView(c->device, NS.view, NULL);
-    if (NS.img) vmaDestroyImage(c->vma, NS.img, NS.mem);
+static void native_free(void) {   // the image may still be in flight: deferred, as free_size
+    vk_defer_view(NS.view), vk_defer_image(NS.img, NS.mem);
     memset(&NS, 0, sizeof NS);
 }
 
@@ -616,6 +632,37 @@ static VkImageView sharpen_native(VkExec *ex) {
 }
 
 int vk_dlaa_presharpened(void) { return __atomic_load_n(&presharp, __ATOMIC_RELAXED); }
+
+// Before the device goes away (vk_device.c destroy_all, with the device idle): every DLSS feature and the parameter
+// object are released and NGX is shut down, so the driver's NGX core does not outlive the device it was started on
+// with features still alive. The work images go with them, at once: nothing is in flight any more. The pipelines and
+// buffers of the motion passes are left to the process's end, like the back end's other pipelines.
+void vk_dlaa_release(void) {
+    const VkCtx *c = vk_ctx();
+    if (!c) return;
+    for (int i = 0; i < 5; i++) {
+        struct Size *e = &D.sizes[i];
+        VkImageView views[7] = {e->out_view, e->mv_view, e->sharp_view, e->x_view[0], e->x_view[1], e->x_view[2], e->x_view[3]};
+        VkImage imgs[7] = {e->out, e->mv, e->sharp, e->x[0], e->x[1], e->x[2], e->x[3]};
+        VmaAllocation mems[7] = {e->out_mem, e->mv_mem, e->sharp_mem, e->x_mem[0], e->x_mem[1], e->x_mem[2], e->x_mem[3]};
+        for (int k = 0; k < 7; k++) {
+            if (views[k]) vkDestroyImageView(c->device, views[k], NULL);
+            if (imgs[k]) vmaDestroyImage(c->vma, imgs[k], mems[k]);
+        }
+        if (e->feat) N.release(e->feat);
+        memset(e, 0, sizeof *e);
+    }
+    D.last = NULL;
+    if (NS.view) vkDestroyImageView(c->device, NS.view, NULL);
+    if (NS.img) vmaDestroyImage(c->vma, NS.img, NS.mem);
+    memset(&NS, 0, sizeof NS);
+    if (!N.loaded) return;
+    features_sweep(1);
+    if (D.params && N.destroy_params) N.destroy_params(D.params);
+    D.params = NULL;
+    if (N.inited && N.shutdown) N.shutdown(c->device);
+    N.inited = N.available = 0;
+}
 
 static void full_barrier(VkCommandBuffer cb) {
     VkMemoryBarrier2 mb = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
@@ -710,6 +757,7 @@ static void times_begin(VkCommandBuffer cb) {
 #define CUT_DIST 5.0     // or moved more than this (units, metres)
 #define CUT_ZOOM 2.0     // or its focal length changed by more than this many stops (a factor of 4)
 #define GAP_PRESENTS 6u  // presents in a row without the DLAA point (100 ms at 60 fps) that start a new history
+#define OFF_PRESENTS 600u   // presents without DLSS, or with nothing temporal, before its memory is given back
 
 static int mv_init(void) {
     if (D.mv_ok >= 0) return D.mv_ok;
@@ -1382,6 +1430,23 @@ void vk_dlaa_frame(void) {
     vk_dlaa_swap_img = NULL, vk_dlaa_swap_view = VK_NULL_HANDLE, vk_dlaa_swap_same = 0;
     const char *want;
     int taa = taa_pick(&want), native = !strcmp(want, "dlaa");
+    // What no longer runs gives its video memory back after OFF_PRESENTS presents (not at once: a click through the
+    // menu's choices would make and free a 4K feature per click). Without DLSS (SMAA, nothing, FSR 3, or DLSS failed in
+    // this run) the sizes' DLSS features go; with nothing temporal at all their work images and FSR 3's go too. Before
+    // this they stayed until exit, freed only where an upscaler evaluated (size_for).
+    static uint32_t no_dlss, no_fsr3, no_taa;
+    no_dlss = taa == TAA_DLSS ? 0 : no_dlss + 1, no_fsr3 = taa == TAA_FSR3 ? 0 : no_fsr3 + 1;
+    no_taa = taa != TAA_NONE ? 0 : no_taa + 1;
+    if (no_fsr3 == OFF_PRESENTS) vk_fsr3_release();
+    if (no_dlss == OFF_PRESENTS)
+        for (int i = 0; i < 5; i++)
+            if (D.sizes[i].feat) retire_feature(D.sizes[i].feat), D.sizes[i].feat = NULL;
+    if (no_taa == OFF_PRESENTS) {
+        for (int i = 0; i < 5; i++)
+            if (D.sizes[i].out) free_size(&D.sizes[i]);
+        D.last = NULL;
+    }
+    if (N.loaded) features_sweep(0);
     // the frame that ends here was sharpened before its HUD, or the present sharpens it; then the next frame starts
     presharp_set(D.sharp_done);
     D.sharp_done = 0;

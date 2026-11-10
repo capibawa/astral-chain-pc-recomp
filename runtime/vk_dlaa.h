@@ -5,6 +5,7 @@
 
 int vk_dlaa_wanted(void);   // a setting at start can ask for DLSS (the device may still lack it)
 int vk_dlaa_ruled_out(void);   // it asked, and NGX has answered that DLSS cannot run in this run
+void vk_dlaa_release(void);    // the device goes away (idle): features and parameters released, NGX shut down
 // DLSS on this run: 1 it can run, 0 it cannot (NGX not up on this GPU), 2 unknown until a restart (no setting at start
 // asked for it, so NGX was not loaded). For the menu.
 int vk_dlaa_dlss_state(void);

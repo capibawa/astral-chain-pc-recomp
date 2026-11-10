@@ -20,3 +20,4 @@ typedef struct {
 
 int vk_fsr3_ready(void);                                      // 1: the pipelines can be made on this device
 int vk_fsr3_evaluate(VkCommandBuffer cb, const Fsr3Eval *e);   // records the passes; 0: failed (FSR 3 off)
+void vk_fsr3_release(void);                                   // its work images go; the next evaluation makes them again

@@ -115,16 +115,19 @@ static struct {
     Consts k;                     // the last frame's constants (the previous-frame fields come from it)
 } F;
 
+// The images may still be in flight (the last frame's passes read and wrote them): they go to the deferred destruction
+// of vk_memory.c, which frees them once the submissions so far are done, with no wait for the device in the frame.
 static void destroy_images(void) {
-    const VkCtx *c = vk_ctx();
-    for (int i = 0; i < SPD_VIEWS; i++)
-        if (F.mip[i]) vkDestroyImageView(c->device, F.mip[i], NULL), F.mip[i] = VK_NULL_HANDLE;
+    for (int i = 0; i < SPD_VIEWS; i++) vk_defer_view(F.mip[i]), F.mip[i] = VK_NULL_HANDLE;
     for (int i = 0; i < I_N; i++) {
-        if (F.view[i]) vkDestroyImageView(c->device, F.view[i], NULL);
-        if (F.img[i]) vmaDestroyImage(c->vma, F.img[i], F.mem[i]);
+        vk_defer_view(F.view[i]), vk_defer_image(F.img[i], F.mem[i]);
         F.view[i] = VK_NULL_HANDLE, F.img[i] = VK_NULL_HANDLE;
     }
     F.w = F.h = F.ow = F.oh = 0;
+}
+
+void vk_fsr3_release(void) {   // vk_dlaa.c: FSR 3 has not run for a while; evaluate makes the images again
+    if (F.w) destroy_images();
 }
 
 static VkImageView make_view(VkImage img, VkFormat f, uint32_t level, uint32_t levels) {
@@ -137,9 +140,6 @@ static VkImageView make_view(VkImage img, VkFormat f, uint32_t level, uint32_t l
 
 static int make_images(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh) {
     const VkCtx *c = vk_ctx();
-    vk_queue_lock();   // the old images may still be in flight; vkDeviceWaitIdle wants every queue held
-    vkDeviceWaitIdle(c->device);
-    vk_queue_unlock();
     destroy_images();
     uint32_t hw = w / 2 ? w / 2 : 1, hh = h / 2 ? h / 2 : 1, big = hw > hh ? hw : hh;
     F.spd_levels = 1;
