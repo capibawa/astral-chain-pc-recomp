@@ -193,11 +193,11 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   RCAS on the composite as the next pass begins, and every later draw of the frame that samples the composite reads the
   sharpened copy (`vk_dlaa_swap_same`): SMAA's passes and the output pass the HUD is drawn over. A frame sharpened so
   makes the present leave RCAS out (`vk_dlaa_presharpened`); a frame without the scene is sharpened by the present's
-  FSR 1, and so is every frame while the present scales the picture with FSR's passes (`vk_fsr.c`
-  `vk_fsr_present_scales`): RCAS is the last step after EASU or the area average, never ahead of them. So the scene is
-  sharpened before the HUD where the window copies the picture. Sharpness is FSR 1's setting: under
-  `upscaler = bilinear` nothing is sharpened anywhere (`vk_fsr_rcas_on`), and the menu shows the row only under `fsr`.
-- Scaling to the window (`upscaler = bilinear | fsr`, bilinear the default, live; `vk_fsr.c` `vk_fsr_record`,
+  RCAS where the picture is the window's size or FSR's passes scale it, and so is every frame while the present scales
+  the picture with FSR's passes (`vk_fsr.c` `vk_fsr_present_scales`): RCAS is the last step after EASU or the area
+  average, never ahead of them. So the scene is sharpened before the HUD where the window copies the picture and under
+  `upscaler = bilinear`. Sharpness is its own setting, whichever upscaler scales the window.
+- Scaling to the window (`upscaler = fsr | bilinear`, fsr the default, live; `vk_fsr.c` `vk_fsr_record`,
   `gfx_present.c` `present_image`): FSR 1's EASU for a larger window; for a smaller one an area average over every source texel
   (`shaders/downscale.comp`), taken in linear light (the picture is decoded from its sRGB or PQ code values and encoded
   again); a picture within two pixels of its place is copied, not scaled. `bilinear` is the plain `vkCmdBlitImage`.

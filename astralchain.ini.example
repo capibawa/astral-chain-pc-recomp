@@ -64,7 +64,7 @@
 # has it, gpu otherwise).
 # astc = auto
 # With the GPU decoder: 0 keeps the decoded ASTC textures as RGBA8, the textures' full quality. bc1 re-encodes them
-# to BC1 when the alpha scan proves them opaque and to BC3 otherwise â€” together an eighth to a quarter of the video
+# to BC1 when the alpha scan proves them opaque and to BC3 otherwise Ã¢â‚¬â€ together an eighth to a quarter of the video
 # memory, at the cost of blockier gradients and normal maps that lose precision. 1 forces BC3 for every texture.
 # auto: 0 on a discrete GPU with 6 GB of video memory or more, bc1 below it and on integrated GPUs.
 # astc_bc = auto
@@ -165,18 +165,18 @@
 # targets from outside the game; an ssaa = 1440p, 2160p or auto line is read as output_res = 2560x1440, 3840x2160 or
 # auto. Read at start.
 # output_res = 1920x1080
-# Scaling to the window when the picture is not its size: bilinear (the default) or fsr (AMD FSR 1). bilinear is the
-# plain filter, without sharpening: softer and the lightest on the GPU. FSR 1 enlarges with its edge-adaptive pass,
-# reduces a larger picture (a game resolution above the window's size) by an average of every rendered pixel, taken in linear light,
-# and sharpens (sharpness below). Changes while the game runs take effect at once.
-# upscaler = bilinear
-# Sharpening (AMD RCAS, the second pass of FSR 1) from 0 (off: no RCAS pass at all) to 100; 50 is the default. It
-# works with upscaler = fsr only, in every anti-aliasing and upscaling mode; under bilinear nothing is sharpened and
-# the value is kept for later. Where the picture is the window's size it sharpens the 3D scene after the game's tonemap
-# and before the HUD is drawn, so the HUD stays as the game drew it. Where FSR 1 scales the picture to the window it is
-# the last step, HUD included: sharpened first, the enlargement would enlarge the sharpening's halos and the reduction
-# would smooth it away. Screens without the 3D scene (the title, loads) are sharpened at the window step. Changes while
+# Scaling to the window when the picture is not its size: fsr (AMD FSR 1, the default) or bilinear. FSR 1 enlarges
+# with its edge-adaptive pass and reduces a larger picture (a game resolution above the window's size) by an average of every
+# rendered pixel, taken in linear light; bilinear is the plain filter, softer and the lightest on the GPU. Changes while
 # the game runs take effect at once.
+# upscaler = fsr
+# Sharpening (AMD RCAS) from 0 (off: no RCAS pass at all) to 100; 50 is the default, in every anti-aliasing and
+# upscaling mode and with either upscaler. Where the picture is the window's size, and under upscaler = bilinear, it
+# sharpens the 3D scene after the game's tonemap and before the HUD is drawn, so the HUD stays as the game drew it.
+# Where FSR 1 scales the picture to the window it is the last step, HUD included: sharpened first, the enlargement
+# would enlarge the sharpening's halos and the reduction would smooth it away. Screens without the 3D scene (the title,
+# loads) are sharpened at the window step when the picture is the window's size or FSR 1 scales it. Changes while the
+# game runs take effect at once.
 # sharpness = 50
 # Picture shape when the window's shape differs from the game resolution's (a 16:9 picture in a 21:9 fullscreen
 # window): fit, the default, keeps the shape, with black bars at the sides or above and below, so a 16:9 game in a wider

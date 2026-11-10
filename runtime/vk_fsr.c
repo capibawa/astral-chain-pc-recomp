@@ -5,11 +5,12 @@
 // bilinear blit read only the texels around each pixel's centre and would throw part of the supersampling away.
 // The area average works in linear light (the picture is decoded from its sRGB or PQ code values and encoded again);
 // EASU and RCAS work on the code values, the perceptual space AMD's headers ask for.
-// upscaler = bilinear (the default) | fsr picks between the plain blit and this, live. Under fsr, AC_SHARPNESS
-// (0..100, 0 = no RCAS pass) sets RCAS at the next frame; under bilinear nothing is sharpened. RCAS is the last step
-// wherever the present scales, in either direction: sharpened first, EASU would enlarge the sharpening's halos and the
-// area average would smooth it away again. Only a picture the window copies 1:1 is sharpened before the HUD instead
-// (vk_dlaa.c, vk_fsr_present_scales, vk_dlaa_presharpened); RCAS is then left out here.
+// upscaler = fsr (the default) | bilinear picks how a picture not the window's size is scaled, live: FSR's passes or
+// the plain blit. AC_SHARPNESS (0..100, 0 = no RCAS pass) is a setting of its own, whatever scales, and sets RCAS at the
+// next frame. RCAS is the last step wherever FSR's passes scale, in either direction: sharpened first, EASU would
+// enlarge the sharpening's halos and the area average would smooth it away again. A picture the window copies 1:1, or
+// the bilinear blit scales, has its scene sharpened before the HUD instead (vk_dlaa.c, vk_fsr_present_scales,
+// vk_dlaa_presharpened); RCAS is then left out here. A 1:1 picture without the scene (the title, loads) gets RCAS here.
 //
 // Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
 // writes an RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars,
@@ -118,13 +119,13 @@ static int sharpness(void) {
     return s < 0 ? 0 : s > 100 ? 100 : s;
 }
 
-// upscaler = bilinear, the default: the present is the plain blit and nothing is sharpened, neither here nor before the
-// HUD (vk_exec_probe.c's exact colour check relies on that). Read at each present: the menu switches it live.
+// upscaler = bilinear: a picture not the window's size goes through the plain blit, without EASU or the
+// area average. Read at each present: the menu switches it live.
 static int bilinear(void) { return strcmp(cfg_value("AC_UPSCALER"), "fsr") != 0; }
 
-// RCAS is FSR 1's second pass: sharpness is its setting (the menu shows the row only with upscaler = fsr), so under
-// bilinear it is off everywhere, the sharpening before the HUD (vk_dlaa.c) included.
-int vk_fsr_rcas_on(void) { return sharpness() > 0 && !bilinear() && ready(vk_ctx()); }
+// Sharpening in every mode and with either scaler: before the HUD (vk_dlaa.c) or on the present (vk_fsr_record).
+// vk_exec_probe.c's exact colour check sets sharpness 0 to keep RCAS out.
+int vk_fsr_rcas_on(void) { return sharpness() > 0 && ready(vk_ctx()); }
 
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h) {
     int sharp = sharpness();
@@ -207,7 +208,8 @@ static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageV
 
 // The last present scaled the picture with FSR's passes, up (EASU) or down (the area average). RCAS belongs after
 // either: sharpened first, EASU would enlarge the sharpening's halos and the average would smooth it away. So
-// vk_dlaa.c sharpens before the HUD only while this is 0: the window copies the picture.
+// vk_dlaa.c sharpens before the HUD only while this is 0: the window copies the picture, or the bilinear blit, which
+// sharpens nothing itself, scales it.
 static volatile int32_t present_scales;
 
 int vk_fsr_present_scales(void) { return __atomic_load_n(&present_scales, __ATOMIC_RELAXED); }
@@ -218,7 +220,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     uint32_t dw = (uint32_t)out[2], dh = (uint32_t)out[3];
     int down = dw < (uint32_t)cw || dh < (uint32_t)ch;   // a smaller window: the area downscale in EASU's place
     int same = dw + 2 >= (uint32_t)cw && dw <= (uint32_t)cw + 2 && dh + 2 >= (uint32_t)ch && dh <= (uint32_t)ch + 2;
-    int plain = bilinear() || !fmt;
+    int plain = !fmt || (bilinear() && !same);   // at 1:1 RCAS may still run here, under either scaler
     __atomic_store_n(&present_scales, !same && !plain, __ATOMIC_RELAXED);
     if (plain) return 0;
     VkCtx *c = vk_ctx();

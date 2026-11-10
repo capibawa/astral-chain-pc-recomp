@@ -560,8 +560,7 @@ static struct Size *size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_
 // without the scene (the title, a load, a menu over no scene) is sharpened at the present as before. Neither runs
 // while the present scales the picture with FSR's passes (vk_fsr.c vk_fsr_present_scales): RCAS then stays on the
 // present, after EASU or the area average, the last step at the window's resolution. So the scene is sharpened here
-// when the window copies the picture. Under upscaler = bilinear, the default, nothing is sharpened at all
-// (vk_fsr_rcas_on): sharpness is FSR 1's setting.
+// when the window copies the picture, or when upscaler = bilinear scales it, which sharpens nothing itself.
 static void full_barrier(VkCommandBuffer cb);
 static volatile int32_t presharp;   // vk_dlaa_presharpened: the last frame was sharpened before its HUD
 

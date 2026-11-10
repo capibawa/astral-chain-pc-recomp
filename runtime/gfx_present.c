@@ -654,10 +654,11 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     // which the game writes as bytes and vk_color.c keeps, unless the image has an sRGB format, whose view decodes them
     int coded = g_sc_hdr ? 2 : pfmt == VK_FORMAT_R8G8B8A8_SRGB || pfmt == VK_FORMAT_B8G8R8A8_SRGB ? 0 : 1;
     int fsr = general ? vk_fsr_record(cb, slot, psrc, pfmt, graded ? cw : w, graded ? ch : h, prect, dst, to, coded) : 0;
-    g_scaler = fsr == 2 ? 3 : fsr ? 2 : cw != to[2] || ch != to[3];
     // The blit: bilinear when it scales. A picture within two pixels of its place is not scaled (vk_fsr.c takes it as
     // the same size too): a linear blit would smear that pixel over the whole width, the nearest one repeats one line.
     int near = cw - to[2] >= -2 && cw - to[2] <= 2 && ch - to[3] >= -2 && ch - to[3] <= 2;
+    // for the overlay: 0 not scaled (copied, or only sharpened by RCAS in place), 1 the blit, 2 EASU, 3 area average
+    g_scaler = fsr == 2 ? 3 : near ? 0 : fsr ? 2 : 1;
     if (!fsr) {
         if (general)   // a GENERAL source (vk_texture.c images): earlier submissions' writes become visible to the blit here
             sync_barrier(cb, psrc, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,

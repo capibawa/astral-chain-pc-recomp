@@ -116,8 +116,9 @@ static const CfgMeta metas[] = {
     {"PERF_OVERLAY", "off", "off|fps|full", LIVE},
     // the size the game renders itself (resolution.c: TotK's output set, or on 1.0.1 the res set, res_pick)
     {"OUTPUT_RES", "1920x1080", NULL, RESTART}, {"RENDER_SCALE", "game", "game|50|67|75|100|125|150|200", RESTART},
-    // how the present scales to the window (vk_fsr.c); sharpness belongs to fsr and does nothing under bilinear
-    {"UPSCALER", "bilinear", "bilinear|fsr", LIVE},
+    // how the present scales to the window (vk_fsr.c); sharpness applies with either. The values are in the menu's
+    // order (ui/menu.cpp opt_choice names them in this order), fsr first
+    {"UPSCALER", "fsr", "fsr|bilinear", LIVE},
     {"SHARPNESS", "50", "0..100", LIVE},
     // anti-aliasing and temporal upscaling (vk_dlaa.c taa_pick); DLSS needs NGX, loaded at start when one of them can
     // ask for it (vk_dlaa_wanted), so a change that first asks for DLSS takes effect after a restart

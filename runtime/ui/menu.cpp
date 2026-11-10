@@ -48,6 +48,7 @@ extern "C" {
 // runtime/vk_dlaa.h, which pulls in Vulkan: what the anti-aliasing rows need of it
 int vk_dlaa_dlss_state(void);
 int vk_dlaa_running(void);
+int vk_dlaa_presharpened(void);
 enum { VK_TAA_NONE, VK_TAA_DLAA, VK_TAA_DLSS, VK_TAA_FSR3 };
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -675,13 +676,9 @@ static void rows_antialiasing(void) {
         opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC,
                    later ? restart : nullptr);
     }
-    // How the present scales to the window (vk_fsr.c). Sharpness is FSR 1's RCAS, so its row shows only with FSR 1
-    // chosen: the present's last step where it scales, before the HUD where the window copies the picture (vk_dlaa.c
-    // presharp). Under bilinear nothing is sharpened and the stored value waits for FSR 1.
-    static const UiTextId scaler[] = {UI_MENU_UPSCALER_BILINEAR, UI_MENU_UPSCALER_FSR};
-    opt_choice("AC_UPSCALER", UI_MENU_UPSCALER, scaler, 2, UI_MENU_UPSCALER_DESC);
-    if (!strcmp(cfg_value("AC_UPSCALER"), "fsr"))
-        opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
+    // RCAS in every mode and with either window scaler (vk_fsr.c vk_fsr_rcas_on): before the HUD where the window
+    // copies the picture or the bilinear blit scales it (vk_dlaa.c presharp), the present's last step where FSR 1 does
+    opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
     if (run == VK_TAA_DLAA || run == VK_TAA_DLSS) {
         static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
         opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
@@ -733,6 +730,10 @@ static void tab_screen(float scale) {
     opt_group(UI_MENU_GRAPHICS);
     row_output_res();
     if (rt_patch_set("shadow") >= 0) row_shadow_res();
+    // How the present scales a picture not the window's size (vk_fsr.c), FSR 1, the default, listed first. Sharpness
+    // is a row of its own, with anti-aliasing (rows_antialiasing).
+    static const UiTextId scaler[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
+    opt_choice("AC_UPSCALER", UI_MENU_UPSCALER, scaler, 2, UI_MENU_UPSCALER_DESC);
     static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
     opt_choice("AC_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
     opt_slider("AC_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
@@ -1231,15 +1232,18 @@ static void perf_picture(const MenuTarget *t, const ImVec4 &c, const PerfStats &
     snprintf(v[0], sizeof v[0], menu_text(UI_MENU_OV_FMT_SIZE), t->width, t->height);
     snprintf(v[1], sizeof v[1], menu_text(UI_MENU_OV_FMT_SIZE), (unsigned)t->image_w, (unsigned)t->image_h);
     snprintf(v[2], sizeof v[2], menu_text(UI_MENU_OV_FMT_SCENE), rw, rh, rw * 100.0 / out[0]);
-    // How the present scales (t->scaler: 0 none, 1 bilinear blit, 2 FSR 1's EASU, 3 the area average). With FSR 1
-    // chosen and not fallen back to the blit, the line gives its sharpness, wherever RCAS ran (vk_fsr.c). A picture
-    // larger than the window is not EASU's: the area average shrinks it, and only RCAS after it is FSR 1's
-    if (t->scaler != 1 && !strcmp(cfg_value("AC_UPSCALER"), "fsr")) {
-        int s = cfg_int("AC_SHARPNESS");
-        snprintf(v[3], sizeof v[3], menu_text(t->scaler == 3 ? UI_MENU_OV_FMT_AREA : UI_MENU_OV_FMT_FSR),
-                 s < 0 ? 0 : s > 100 ? 100 : s);
+    // How the present scales (t->scaler: 0 none, 1 bilinear blit, 2 FSR 1's EASU, 3 the area average), then the
+    // sharpness where the frame was sharpened: before the HUD (vk_dlaa.c presharp), or on the present, which runs RCAS
+    // after FSR's passes and on a 1:1 picture but never after the bilinear blit (vk_fsr.c vk_fsr_record)
+    const char *how = menu_text(t->scaler == 3   ? UI_MENU_OV_SCALE_AREA
+                                : t->scaler == 2 ? UI_MENU_OV_SCALE_FSR
+                                : t->scaler      ? UI_MENU_OV_SCALE_BILINEAR
+                                                 : UI_MENU_OV_SCALE_NONE);
+    int sharp = cfg_int("AC_SHARPNESS");
+    if (sharp > 0 && (t->scaler != 1 || vk_dlaa_presharpened())) {
+        snprintf(v[3], sizeof v[3], menu_text(UI_MENU_OV_FMT_SHARP), how, sharp > 100 ? 100 : sharp);
     } else {
-        snprintf(v[3], sizeof v[3], "%s", menu_text(t->scaler ? UI_MENU_OV_SCALE_BILINEAR : UI_MENU_OV_SCALE_NONE));
+        snprintf(v[3], sizeof v[3], "%s", how);
     }
     double hz = frame_step_limit_hz();
     snprintf(v[4], sizeof v[4], "%s", menu_text(UI_MENU_OV_NONE));
