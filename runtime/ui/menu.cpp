@@ -676,11 +676,13 @@ static void rows_antialiasing(void) {
         opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC,
                    later ? restart : nullptr);
     }
-    // How the present scales to the window (vk_fsr.c), then RCAS: the present's last step where FSR 1 scales, before
-    // the HUD where the window copies the picture or the bilinear blit scales it (vk_dlaa.c presharp)
-    static const UiTextId scaler[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
+    // How the present scales to the window (vk_fsr.c). Sharpness is FSR 1's RCAS, so its row shows only with FSR 1
+    // chosen: the present's last step where it scales, before the HUD where the window copies the picture (vk_dlaa.c
+    // presharp). Under bilinear nothing is sharpened and the stored value waits for FSR 1.
+    static const UiTextId scaler[] = {UI_MENU_UPSCALER_BILINEAR, UI_MENU_UPSCALER_FSR};
     opt_choice("AC_UPSCALER", UI_MENU_UPSCALER, scaler, 2, UI_MENU_UPSCALER_DESC);
-    opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
+    if (!strcmp(cfg_value("AC_UPSCALER"), "fsr"))
+        opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
     if (run == VK_TAA_DLAA || run == VK_TAA_DLSS) {
         static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
         opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);

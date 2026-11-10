@@ -114,7 +114,7 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
 // RCAS alone, from src (sampled) into dst (an RGBA16F storage view), both w x h and in GENERAL, on any command buffer
 // (vk_dlaa.c sharpens DLAA, DLSS and FSR 3 with it before the HUD). 1 = recorded; 0 = nothing (vk_fsr_rcas_on is 0).
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h);
-int vk_fsr_rcas_on(void);   // sharpness above 0 and FSR's pipelines made
+int vk_fsr_rcas_on(void);   // upscaler = fsr, sharpness above 0 and FSR's pipelines made
 int vk_fsr_present_scales(void);   // the last present scaled the picture with FSR's passes: RCAS belongs after them
 void vk_fsr_release(void);   // before the device goes away
 // Colour adjustment on the present (vk_color.c): with AC_COLOR_* away from their defaults, records a pass that writes

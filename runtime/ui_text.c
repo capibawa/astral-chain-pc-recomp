@@ -65,9 +65,8 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER] = "Scaling to the window",
     [UI_MENU_UPSCALER_DESC] = "How the picture is scaled when the window is not its size. AMD FSR 1 keeps edges and "
                               "detail sharper in a larger window and averages every rendered pixel in a smaller one, "
-                              "with the sharpening as its last step. Bilinear is the plain filter: softer, and the "
-                              "lightest on the GPU; the 3D scene is then sharpened before the HUD is drawn. Applies at "
-                              "once.",
+                              "and brings the Sharpness setting with it. Bilinear is the plain filter, without "
+                              "sharpening: softer, and the lightest on the GPU. Applies at once.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Picture shape",
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
@@ -484,9 +483,8 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER] = "Масштабирование под окно",
     [UI_MENU_UPSCALER_DESC] = "Как картинка подгоняется под окно, когда их размеры различаются. AMD FSR 1 сохраняет края "
                               "и детали чётче в окне большего размера и усредняет все отрисованные пиксели в окне "
-                              "меньшего размера; резкость повышается последним шагом. Билинейное — простой фильтр: "
-                              "мягче и легче всего для видеокарты; резкость 3D-сцены тогда повышается до отрисовки "
-                              "интерфейса. Действует сразу.",
+                              "меньшего размера; с ним появляется настройка резкости. Билинейное — простой фильтр без "
+                              "повышения резкости: мягче и легче всего для видеокарты. Действует сразу.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Билинейное",
     [UI_MENU_ASPECT] = "Форма картинки",
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
@@ -918,9 +916,8 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER] = "Escala para a janela",
     [UI_MENU_UPSCALER_DESC] = "Como a imagem é ajustada quando a janela tem outro tamanho. O AMD FSR 1 mantém bordas e "
                               "detalhes mais nítidos numa janela maior e faz a média de todos os pixels renderizados "
-                              "numa menor, com a nitidez como último passo. Bilinear é o filtro simples: mais suave e o "
-                              "mais leve para a GPU; a cena 3D recebe então a nitidez antes de o HUD ser desenhado. Vale "
-                              "na hora.",
+                              "numa menor, e traz consigo o ajuste de nitidez. Bilinear é o filtro simples, sem "
+                              "nitidez: mais suave e o mais leve para a GPU. Vale na hora.",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Formato da imagem",
     [UI_MENU_ASPECT_DESC] = "Quando o formato da janela difere do da resolução do jogo (uma imagem 16:9 numa tela "
@@ -1364,8 +1361,8 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES_NEXT] = "，重启后 %s",
     [UI_MENU_UPSCALER] = "缩放到窗口",
     [UI_MENU_UPSCALER_DESC] = "画面与窗口大小不同时的缩放方式。AMD FSR 1 在较大的窗口中更好地保留边缘和细节，"
-                              "在较小的窗口中对所有渲染像素取平均，最后一步进行锐化。双线性是普通滤波：更柔和，"
-                              "对 GPU 负担最小；此时 3D 场景在绘制 HUD 之前锐化。立即生效。",
+                              "在较小的窗口中对所有渲染像素取平均，并带有锐度设置。双线性是普通滤波，不做锐化："
+                              "更柔和，对 GPU 负担最小。立即生效。",
     [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "双线性",
     [UI_MENU_ASPECT] = "画面宽高比",
     [UI_MENU_ASPECT_DESC] = "当窗口宽高比和游戏分辨率不同时（21:9 屏幕上显示 16:9 画面）："

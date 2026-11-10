@@ -5,11 +5,11 @@
 // bilinear blit read only the texels around each pixel's centre and would throw part of the supersampling away.
 // The area average works in linear light (the picture is decoded from its sRGB or PQ code values and encoded again);
 // EASU and RCAS work on the code values, the perceptual space AMD's headers ask for.
-// upscaler = fsr (the default) | bilinear picks between this and the plain blit, live; AC_SHARPNESS (0..100, 0 = no
-// RCAS pass) sets RCAS at the next frame. RCAS is the last step wherever the present scales, in either direction:
-// sharpened first, EASU would enlarge the sharpening's halos and the area average would smooth it away again. Only a
-// picture the window copies 1:1, and any picture under the bilinear blit, which has no sharpening of its own, is
-// sharpened before the HUD instead (vk_dlaa.c, vk_fsr_present_scales, vk_dlaa_presharpened); RCAS is then left out here.
+// upscaler = bilinear (the default) | fsr picks between the plain blit and this, live. Under fsr, AC_SHARPNESS
+// (0..100, 0 = no RCAS pass) sets RCAS at the next frame; under bilinear nothing is sharpened. RCAS is the last step
+// wherever the present scales, in either direction: sharpened first, EASU would enlarge the sharpening's halos and the
+// area average would smooth it away again. Only a picture the window copies 1:1 is sharpened before the HUD instead
+// (vk_dlaa.c, vk_fsr_present_scales, vk_dlaa_presharpened); RCAS is then left out here.
 //
 // Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
 // writes an RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars,
@@ -118,12 +118,13 @@ static int sharpness(void) {
     return s < 0 ? 0 : s > 100 ? 100 : s;
 }
 
-// upscaler = bilinear: the present is the plain blit, with no EASU, area average or RCAS of its own (also what
-// vk_exec_probe.c's exact colour check asks for through AC_UPSCALER). Read at each present: the menu switches it live.
-static int bilinear(void) { return !strcmp(cfg_value("AC_UPSCALER"), "bilinear"); }
+// upscaler = bilinear, the default: the present is the plain blit and nothing is sharpened, neither here nor before the
+// HUD (vk_exec_probe.c's exact colour check relies on that). Read at each present: the menu switches it live.
+static int bilinear(void) { return strcmp(cfg_value("AC_UPSCALER"), "fsr") != 0; }
 
-// The sharpening before the HUD (vk_dlaa.c) is RCAS too, whatever scales the window.
-int vk_fsr_rcas_on(void) { return sharpness() > 0 && ready(vk_ctx()); }
+// RCAS is FSR 1's second pass: sharpness is its setting (the menu shows the row only with upscaler = fsr), so under
+// bilinear it is off everywhere, the sharpening before the HUD (vk_dlaa.c) included.
+int vk_fsr_rcas_on(void) { return sharpness() > 0 && !bilinear() && ready(vk_ctx()); }
 
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h) {
     int sharp = sharpness();
@@ -206,8 +207,7 @@ static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageV
 
 // The last present scaled the picture with FSR's passes, up (EASU) or down (the area average). RCAS belongs after
 // either: sharpened first, EASU would enlarge the sharpening's halos and the average would smooth it away. So
-// vk_dlaa.c sharpens before the HUD only while this is 0: the window copies the picture, or the bilinear blit scales
-// it, which has no sharpening of its own to come after.
+// vk_dlaa.c sharpens before the HUD only while this is 0: the window copies the picture.
 static volatile int32_t present_scales;
 
 int vk_fsr_present_scales(void) { return __atomic_load_n(&present_scales, __ATOMIC_RELAXED); }
