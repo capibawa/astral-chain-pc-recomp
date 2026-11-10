@@ -589,7 +589,8 @@ void vk_exec_pass_begin(VkExec *ex) {
     if (ex->in_pass) return;
     resolve_rt(ex);
     vk_contact_pass_begin(ex);
-    vk_dlaa_pass(ex);   // DLAA runs before the bloom chain's first pass (vk_dlaa.c)
+    vk_dlaa_pass(ex);   // follows the frame's passes: DLAA at the bloom's third level, upscaling at the scaling pass,
+                        // the sharpening after the composite (vk_dlaa.c vk_dlaa_pass)
     // Learned targets (VkTexImage.fb_learned) are attached in the feedback layout
     VkImage want[9];
     VkImageAspectFlags wasp[9];
