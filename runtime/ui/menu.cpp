@@ -48,7 +48,6 @@ extern "C" {
 // runtime/vk_dlaa.h, which pulls in Vulkan: what the anti-aliasing rows need of it
 int vk_dlaa_dlss_state(void);
 int vk_dlaa_running(void);
-int vk_dlaa_presharpened(void);
 enum { VK_TAA_NONE, VK_TAA_DLAA, VK_TAA_DLSS, VK_TAA_FSR3 };
 // host.h and vk.h pull in cpu.h, which is C only: the functions the menu needs from them, as declared there.
 void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -1232,20 +1231,16 @@ static void perf_picture(const MenuTarget *t, const ImVec4 &c, const PerfStats &
     snprintf(v[0], sizeof v[0], menu_text(UI_MENU_OV_FMT_SIZE), t->width, t->height);
     snprintf(v[1], sizeof v[1], menu_text(UI_MENU_OV_FMT_SIZE), (unsigned)t->image_w, (unsigned)t->image_h);
     snprintf(v[2], sizeof v[2], menu_text(UI_MENU_OV_FMT_SCENE), rw, rh, rw * 100.0 / out[0]);
-    // how the present scales (t->scaler: 0 none, 1 bilinear, 2 FSR 1, 3 area average) and where RCAS ran: before the
-    // HUD (vk_dlaa.c presharp; the present then leaves it out) or on the present
-    int sharp = cfg_int("AC_SHARPNESS");
-    sharp = sharp < 0 ? 0 : sharp > 100 ? 100 : sharp;
-    const char *how = menu_text(t->scaler == 3   ? UI_MENU_OV_SCALE_AREA
-                                : t->scaler == 2 ? UI_MENU_OV_SCALE_FSR
-                                : t->scaler      ? UI_MENU_OV_SCALE_BILINEAR
-                                                 : UI_MENU_OV_SCALE_NONE);
-    if (sharp && vk_dlaa_presharpened())
-        snprintf(v[3], sizeof v[3], menu_text(UI_MENU_OV_FMT_PRESHARP), how, sharp);
-    else if (sharp && t->scaler >= 2)
-        snprintf(v[3], sizeof v[3], menu_text(UI_MENU_OV_FMT_SHARP_PRESENT), how, sharp);
-    else
-        snprintf(v[3], sizeof v[3], "%s", how);
+    // How the present scales (t->scaler: 0 none, 1 bilinear blit, 2 FSR 1's EASU, 3 the area average). With FSR 1
+    // chosen and not fallen back to the blit, the line gives its sharpness, wherever RCAS ran (vk_fsr.c). A picture
+    // larger than the window is not EASU's: the area average shrinks it, and only RCAS after it is FSR 1's
+    if (t->scaler != 1 && !strcmp(cfg_value("AC_UPSCALER"), "fsr")) {
+        int s = cfg_int("AC_SHARPNESS");
+        snprintf(v[3], sizeof v[3], menu_text(t->scaler == 3 ? UI_MENU_OV_FMT_AREA : UI_MENU_OV_FMT_FSR),
+                 s < 0 ? 0 : s > 100 ? 100 : s);
+    } else {
+        snprintf(v[3], sizeof v[3], "%s", menu_text(t->scaler ? UI_MENU_OV_SCALE_BILINEAR : UI_MENU_OV_SCALE_NONE));
+    }
     double hz = frame_step_limit_hz();
     snprintf(v[4], sizeof v[4], "%s", menu_text(UI_MENU_OV_NONE));
     if (hz > 0) snprintf(v[4], sizeof v[4], menu_text(UI_MENU_OV_FPS), hz);

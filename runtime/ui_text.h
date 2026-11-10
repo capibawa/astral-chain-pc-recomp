@@ -204,11 +204,9 @@ typedef enum {
     UI_MENU_OV_OS,            // the plain OS line under the device names, filled from plat_os_version
     UI_MENU_OV_FMT_SIZE,      // "%ux%u"
     UI_MENU_OV_FMT_SCENE,     // "%ux%u, %.0f%%": the scene and its share of the game image's width
-    UI_MENU_OV_SCALE_FSR,     // "AMD FSR 1": a picture smaller than the window (vk_fsr.c)
-    UI_MENU_OV_SCALE_AREA,    // "area average": a picture larger than the window (vk_fsr.c)
+    UI_MENU_OV_FMT_FSR,       // "AMD FSR 1, sharpness %d%%": upscaler = fsr (vk_fsr.c)
+    UI_MENU_OV_FMT_AREA,      // "area average, sharpness %d%%": upscaler = fsr, a picture larger than the window
     UI_MENU_OV_SCALE_NONE, UI_MENU_OV_SCALE_BILINEAR,
-    UI_MENU_OV_FMT_PRESHARP,       // "%s; sharpened before the HUD (%d%%)": the scaling, then the sharpness
-    UI_MENU_OV_FMT_SHARP_PRESENT,  // "%s, sharpness %d%%": RCAS on the present, HUD included
     // the Cheats tab (cheats.c): the file, the kinds of cheat and why one cannot be switched
     UI_MENU_TAB_CHEATS,
     UI_MENU_CHEATS_NONE,      // "%s": <build id>.txt
