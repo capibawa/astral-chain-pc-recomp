@@ -3,9 +3,13 @@
 // window's size (output_res = 2560x1440 on a 1440p screen) gets RCAS alone. A larger one (2160p on a 1440p screen) is
 // reduced by an area average (runtime/shaders/downscale.comp) in EASU's place, then sharpened by RCAS: EASU and the
 // bilinear blit read only the texels around each pixel's centre and would throw part of the supersampling away.
-// It always runs where FSR's pipelines exist (AC_UPSCALER=bilinear, a test knob, blits instead); AC_SHARPNESS (0..100,
-// 0 = no RCAS pass) sets RCAS at the next frame. While DLAA, DLSS or FSR 3 sharpened the scene before the HUD
-// (vk_dlaa_presharpened), RCAS is left out here.
+// The area average works in linear light (the picture is decoded from its sRGB or PQ code values and encoded again);
+// EASU and RCAS work on the code values, the perceptual space AMD's headers ask for.
+// upscaler = fsr (the default) | bilinear picks between this and the plain blit, live; AC_SHARPNESS (0..100, 0 = no
+// RCAS pass) sets RCAS at the next frame. RCAS is the last step wherever the present scales, in either direction:
+// sharpened first, EASU would enlarge the sharpening's halos and the area average would smooth it away again. Only a
+// picture the window copies 1:1, and any picture under the bilinear blit, which has no sharpening of its own, is
+// sharpened before the HUD instead (vk_dlaa.c, vk_fsr_present_scales, vk_dlaa_presharpened); RCAS is then left out here.
 //
 // Per frame: EASU reads the source through a view of its own format (the same colour conversion the blit does) and
 // writes an RGBA16F image of the picture's size on the swapchain (all of it, or the part between black bars,
@@ -74,7 +78,7 @@ static int init(VkCtx *c) {
     VkDescriptorSetLayoutCreateInfo dci = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
                                            .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
                                            .bindingCount = 2, .pBindings = b};
-    VkPushConstantRange pr = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 32};
+    VkPushConstantRange pr = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 48};   // 12 floats; EASU and RCAS read the first eight
     VkPipelineLayoutCreateInfo li = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = 1,
                                      .pSetLayouts = &F.dsl, .pushConstantRangeCount = 1, .pPushConstantRanges = &pr};
     VkSamplerCreateInfo si = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, .magFilter = VK_FILTER_LINEAR,
@@ -107,28 +111,26 @@ static int ready(VkCtx *c) {
     return F.ok;
 }
 
-static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageView out, const float pc[8]);
+static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageView out, const float pc[12]);
 
 static int sharpness(void) {
     int s = cfg_int("AC_SHARPNESS");
     return s < 0 ? 0 : s > 100 ? 100 : s;
 }
 
-// AC_UPSCALER=bilinear (environment only, a test knob: vk_exec_probe.c's exact colour check): the plain blit, no FSR.
-// The setting it was is gone; cfg.c migrate_upscaler reads an old upscaler = bilinear line as sharpness = 0.
-static int bilinear(void) {
-    const char *u = cfg_get("AC_UPSCALER");
-    return u && !strcmp(u, "bilinear");
-}
+// upscaler = bilinear: the present is the plain blit, with no EASU, area average or RCAS of its own (also what
+// vk_exec_probe.c's exact colour check asks for through AC_UPSCALER). Read at each present: the menu switches it live.
+static int bilinear(void) { return !strcmp(cfg_value("AC_UPSCALER"), "bilinear"); }
 
-int vk_fsr_rcas_on(void) { return sharpness() > 0 && !bilinear() && ready(vk_ctx()); }
+// The sharpening before the HUD (vk_dlaa.c) is RCAS too, whatever scales the window.
+int vk_fsr_rcas_on(void) { return sharpness() > 0 && ready(vk_ctx()); }
 
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h) {
     int sharp = sharpness();
     if (!vk_fsr_rcas_on()) return 0;
     // the whole source: fsr_rcas.comp clamps its reads to the rectangle in the last four constants, and an empty one
     // collapses every read onto one texel
-    float rcas[8] = {(float)w, (float)h, (float)(100 - sharp) / 50.0f, 0, 0, 0, (float)w, (float)h};
+    float rcas[12] = {(float)w, (float)h, (float)(100 - sharp) / 50.0f, 0, 0, 0, (float)w, (float)h};
     bind_pass(cb, F.rcas, src, dst, rcas);
     vkCmdDispatch(cb, (w + 15) / 16, (h + 15) / 16, 1);
     return 1;
@@ -190,7 +192,7 @@ static void barrier(VkCommandBuffer cb, VkImage img, VkImageLayout from, VkImage
     vkCmdPipelineBarrier2(cb, &d);
 }
 
-static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageView out, const float pc[8]) {
+static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageView out, const float pc[12]) {
     VkDescriptorImageInfo ii = {F.sampler, in, VK_IMAGE_LAYOUT_GENERAL}, oi = {VK_NULL_HANDLE, out, VK_IMAGE_LAYOUT_GENERAL};
     VkWriteDescriptorSet w[2] = {
         {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstBinding = 0, .descriptorCount = 1,
@@ -199,24 +201,26 @@ static void bind_pass(VkCommandBuffer cb, VkPipeline p, VkImageView in, VkImageV
          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .pImageInfo = &oi}};
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, p);
     rec_push(F.push, cb, VK_PIPELINE_BIND_POINT_COMPUTE, F.layout, 0, 2, w);
-    vkCmdPushConstants(cb, F.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 32, pc);
+    vkCmdPushConstants(cb, F.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, 48, pc);
 }
 
-// The last present enlarged the picture with EASU. RCAS is made to run on EASU's output, not ahead of it: sharpened
-// first, EASU would enlarge the sharpening's halos. So vk_dlaa.c sharpens before the HUD only while this is 0 (the
-// window copies the picture or reduces it), and otherwise leaves RCAS to the present, after EASU.
-static volatile int32_t present_up;
+// The last present scaled the picture with FSR's passes, up (EASU) or down (the area average). RCAS belongs after
+// either: sharpened first, EASU would enlarge the sharpening's halos and the average would smooth it away. So
+// vk_dlaa.c sharpens before the HUD only while this is 0: the window copies the picture, or the bilinear blit scales
+// it, which has no sharpening of its own to come after.
+static volatile int32_t present_scales;
 
-int vk_fsr_present_upscales(void) { return __atomic_load_n(&present_up, __ATOMIC_RELAXED); }
+int vk_fsr_present_scales(void) { return __atomic_load_n(&present_scales, __ATOMIC_RELAXED); }
 
 int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
-                  VkImage dst, const int out[4]) {
+                  VkImage dst, const int out[4], int encoding) {
     int cw = crop[2], ch = crop[3];
     uint32_t dw = (uint32_t)out[2], dh = (uint32_t)out[3];
-    if (bilinear() || !fmt) return 0;
     int down = dw < (uint32_t)cw || dh < (uint32_t)ch;   // a smaller window: the area downscale in EASU's place
     int same = dw + 2 >= (uint32_t)cw && dw <= (uint32_t)cw + 2 && dh + 2 >= (uint32_t)ch && dh <= (uint32_t)ch + 2;
-    __atomic_store_n(&present_up, !down && !same, __ATOMIC_RELAXED);
+    int plain = bilinear() || !fmt;
+    __atomic_store_n(&present_scales, !same && !plain, __ATOMIC_RELAXED);
+    if (plain) return 0;
     VkCtx *c = vk_ctx();
     if (!ready(c) || !ensure_images(c, dw, dh)) return 0;
     slot %= SLOTS;
@@ -267,8 +271,8 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
         barrier(cb, F.img[1], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, CS | XF, 0, CS,
                 VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
         // RCAS reads the crop rectangle where it lies in the source (crop[0], crop[1]), not from the image's corner
-        float rcas[8] = {(float)dw, (float)dh, (float)(100 - sharp) / 50.0f, 0,
-                         (float)crop[0], (float)crop[1], (float)cw, (float)ch};
+        float rcas[12] = {(float)dw, (float)dh, (float)(100 - sharp) / 50.0f, 0,
+                          (float)crop[0], (float)crop[1], (float)cw, (float)ch};
         bind_pass(cb, F.rcas, F.src_view[slot], F.view[1], rcas);
         vkCmdDispatch(cb, gx, gy, 1);
         barrier(cb, F.img[1], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CS,
@@ -286,14 +290,16 @@ int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, 
     for (int i = 0; i < 2; i++)
         barrier(cb, F.img[i], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, CS | XF, 0, CS,
                 VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    float easu[8] = {(float)cw, (float)ch, (float)sw, (float)sh, (float)dw, (float)dh, (float)crop[0], (float)crop[1]};
-    bind_pass(cb, down ? F.down : F.easu, F.src_view[slot], F.view[0], easu);   // downscale.comp takes EASU's constants
+    // downscale.comp takes EASU's constants and, ninth, how the source is encoded, to average in linear light
+    float easu[12] = {(float)cw, (float)ch, (float)sw, (float)sh, (float)dw, (float)dh, (float)crop[0], (float)crop[1],
+                      (float)encoding};
+    bind_pass(cb, down ? F.down : F.easu, F.src_view[slot], F.view[0], easu);
     vkCmdDispatch(cb, gx, gy, 1);
     int last = 0;
     if (sharp > 0) {
         barrier(cb, F.img[0], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CS, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
                 CS, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        float rcas[8] = {(float)dw, (float)dh, (float)(100 - sharp) / 50.0f, 0, 0, 0, (float)dw, (float)dh};
+        float rcas[12] = {(float)dw, (float)dh, (float)(100 - sharp) / 50.0f, 0, 0, 0, (float)dw, (float)dh};
         bind_pass(cb, F.rcas, F.view[0], F.view[1], rcas);
         vkCmdDispatch(cb, gx, gy, 1);
         last = 1;

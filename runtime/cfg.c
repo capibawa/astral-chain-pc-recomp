@@ -54,7 +54,7 @@ static const char *const known[] = {
     "SHADER_MEMO", "SHADOW_RANGE", "SHADOW_RES", "SHADOW_SCALE", "SHARED_FONTS", "SHARPNESS", "SHOTS", "SHOTS_DIR",
     "SHOTS_FULL", "SKIP_FS", "SKIP_VS", "SMAA", "SPEED_PROBE", "SPIN", "SPIN_HANDOFF_US", "SPLIT_DRAWS", "SPLIT_US", "STICK_DEADZONE", "STICK_SENS",
     "SWKBD_ANSWER",
-    "SWKBD_TEST", "TEST_HITCH", "TEST_PAD", "TEST_PREPARE_SHADERS", "TEX_ALIAS", "TEX_CACHE_MB", "TEX_MEMO", "TEX_MIP_SKIP", "TEX_PREFETCH", "TEX_VRAM_PRESSURE", "TIMER_1MS", "TRACE", "UBO_SNAPSHOT", "UPSCALER" /* a test knob now (migrate_upscaler) */, "VK_DYN_A2C", "VK_DYN_VERTEX", "VK_NO_FLOAT64",
+    "SWKBD_TEST", "TEST_HITCH", "TEST_PAD", "TEST_PREPARE_SHADERS", "TEX_ALIAS", "TEX_CACHE_MB", "TEX_MEMO", "TEX_MIP_SKIP", "TEX_PREFETCH", "TEX_VRAM_PRESSURE", "TIMER_1MS", "TRACE", "UBO_SNAPSHOT", "UPSCALER", "VK_DYN_A2C", "VK_DYN_VERTEX", "VK_NO_FLOAT64",
     "VK_PRESENT", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VOLUME", "VRAM_HEADROOM", "VS_OUTS",
     "WALK_KEY", "WALK_SCALE", "WB_EXACT", "WB_FENCE_LIMIT", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_PROCS",
     "ZSTD_CHECK", "ZSTD_NATIVE",
@@ -68,7 +68,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"REALTIME", "frame rate"}, {"CLOTH_REALTIME", "frame rate"}, {"HIGHFPS_FIX", "frame rate"},
     {"FULLSCREEN", "display"}, {"WINDOW_SIZE", "display"}, {"PERF_OVERLAY", "display"}, {"VK_PRESENT", "display"},
     {"GPU_INDEX", "display"}, {"OUTPUT_RES", "display"}, {"RENDER_SCALE", "display"},
-    {"SHARPNESS", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"ANISO", "display"},
+    {"UPSCALER", "display"}, {"SHARPNESS", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"ANISO", "display"},
     {"COLOR_PRESET", "display"},
     {"COLOR_BRIGHTNESS", "display"}, {"COLOR_CONTRAST", "display"}, {"COLOR_SATURATION", "display"},
     {"COLOR_GAMMA", "display"}, {"HDR", "display"}, {"HDR_PEAK_NITS", "display"}, {"HDR_GAME_NITS", "display"},
@@ -116,6 +116,7 @@ static const CfgMeta metas[] = {
     {"PERF_OVERLAY", "off", "off|fps|full", LIVE},
     // the size the game renders itself (resolution.c: TotK's output set, or on 1.0.1 the res set, res_pick)
     {"OUTPUT_RES", "1920x1080", NULL, RESTART}, {"RENDER_SCALE", "game", "game|50|67|75|100|125|150|200", RESTART},
+    {"UPSCALER", "fsr", "fsr|bilinear", LIVE},   // how the present scales to the window (vk_fsr.c)
     {"SHARPNESS", "50", "0..100", LIVE},
     // anti-aliasing and temporal upscaling (vk_dlaa.c taa_pick); DLSS needs NGX, loaded at start when one of them can
     // ask for it (vk_dlaa_wanted), so a change that first asks for DLSS takes effect after a restart
@@ -314,25 +315,11 @@ static void migrate_aa(void) {
     drop(dlaa), drop(dlss), drop(tu), drop(smaa);
 }
 
-// The window's scaling was a setting, upscaler = fsr | bilinear. FSR 1 now always scales (vk_fsr.c), and sharpness is
-// the one control: bilinear, which never sharpened, is read as sharpness = 0 unless the file sets sharpness itself. The
-// next cfg_save drops the line. AC_UPSCALER=bilinear stays a test knob in the environment (vk_exec_probe.c).
-static void migrate_upscaler(void) {
-    CfgEntry *u = entry("UPSCALER");
-    if (!u) return;
-    if (!strcasecmp(u->value, "bilinear") && !entry("SHARPNESS")) {
-        put_new("SHARPNESS", "0");
-        rt_log("cfg: astralchain.ini upscaler = bilinear is read as sharpness = 0");
-    }
-    drop(u);
-}
-
 static void migrate(void) {
     migrate_ssaa();
     migrate_prompts();
     migrate_smaa();
     migrate_aa();
-    migrate_upscaler();
 }
 
 int cfg_load(const char *path) {

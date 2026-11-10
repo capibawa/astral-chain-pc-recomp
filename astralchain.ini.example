@@ -165,12 +165,17 @@
 # targets from outside the game; an ssaa = 1440p, 2160p or auto line is read as output_res = 2560x1440, 3840x2160 or
 # auto. Read at start.
 # output_res = 1920x1080
-# Sharpening (AMD RCAS) of the 3D scene from 0 (off: no RCAS pass at all) to 100; 50 is the default. In every
-# anti-aliasing and upscaling mode it runs after the game's tonemap and before it draws its HUD, so the HUD stays crisp;
-# screens without the 3D scene (the title, loads) are sharpened as AMD FSR 1 fits them to the window. The window step
-# scales with FSR 1 when the picture is not the window's size and copies it otherwise. A window larger than the picture
-# is the exception: there the sharpening runs after FSR 1 enlarged the picture, HUD included, because sharpening ahead
-# of the enlargement would enlarge its halos. Changes while the game runs take effect at once. An upscaler = bilinear line from an older version is read as sharpness = 0.
+# Scaling to the window when the picture is not its size: fsr (AMD FSR 1, the default) or bilinear. FSR 1 enlarges
+# with its edge-adaptive pass and reduces a larger picture (a game resolution above the window's size) by an average of every
+# rendered pixel, taken in linear light; bilinear is the plain filter, softer and the lightest on the GPU. Changes while
+# the game runs take effect at once.
+# upscaler = fsr
+# Sharpening (AMD RCAS) from 0 (off: no RCAS pass at all) to 100; 50 is the default, in every anti-aliasing and
+# upscaling mode. Where the picture is the window's size, and under upscaler = bilinear, it sharpens the 3D scene after
+# the game's tonemap and before the HUD is drawn, so the HUD stays as the game drew it. Where FSR 1 scales the picture
+# to the window it is the last step, HUD included: sharpened first, the enlargement would enlarge the sharpening's
+# halos and the reduction would smooth it away. Screens without the 3D scene (the title, loads) are sharpened at the
+# window step. Changes while the game runs take effect at once.
 # sharpness = 50
 # Picture shape when the window's shape differs from the game resolution's (a 16:9 picture in a 21:9 fullscreen
 # window): fit, the default, keeps the shape, with black bars at the sides or above and below, so a 16:9 game in a wider

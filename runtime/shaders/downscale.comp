@@ -2,7 +2,12 @@
 // (output_res above the window's size). Each output pixel covers a rectangle of the source; it takes the average of the
 // texels under it, each weighted by the part of it the rectangle covers, so every rendered texel counts. A bilinear blit
 // reads only the 2x2 texels around the pixel's centre: at 3840 -> 2560 it skips texels and thin edges shimmer.
-// Same bindings and push constants as fsr_easu.comp.
+// The average is taken in linear light: the picture arrives as sRGB or PQ code values (pc.mode), and a mean of code
+// values is darker than the mean of the light they stand for, which thinned bright lines on dark ground. Each texel is
+// decoded, the mean encoded again.
+// An axis the window enlarges (AC_ASPECT=stretch in a window wider and lower than the picture) gets a rectangle one
+// texel wide around the pixel's place, which is linear interpolation; a narrower one would repeat texels.
+// Same bindings and first eight push constants as fsr_easu.comp.
 #version 450
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -13,26 +18,56 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D dst;
 layout(push_constant) uniform Params {
     vec4 view;   // crop width, crop height, source image width, source image height
     vec4 out_;   // output width, output height, crop x, crop y
+    vec4 mode;   // x: how the source is encoded: 0 linear already (averaged as it is), 1 sRGB, 2 PQ (HDR10)
 } pc;
 
 #define MAX_TAPS 8   // texels per axis: ratios up to 7
+
+vec3 srgb_to_linear(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
+}
+
+vec3 linear_to_srgb(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+
+// SMPTE ST 2084, light as a share of 10000 nits
+const float PQ_M1 = 0.1593017578125, PQ_M2 = 78.84375, PQ_C1 = 0.8359375, PQ_C2 = 18.8515625, PQ_C3 = 18.6875;
+
+vec3 pq_to_linear(vec3 e) {
+    vec3 p = pow(clamp(e, 0.0, 1.0), vec3(1.0 / PQ_M2));
+    return pow(max(p - PQ_C1, vec3(0.0)) / (PQ_C2 - PQ_C3 * p), vec3(1.0 / PQ_M1));
+}
+
+vec3 linear_to_pq(vec3 y) {
+    vec3 p = pow(max(y, vec3(0.0)), vec3(PQ_M1));
+    return pow((PQ_C1 + PQ_C2 * p) / (1.0 + PQ_C3 * p), vec3(PQ_M2));
+}
+
+vec3 decode(vec3 c) { return pc.mode.x > 1.5 ? pq_to_linear(c) : pc.mode.x > 0.5 ? srgb_to_linear(c) : c; }
+vec3 encode(vec3 c) { return pc.mode.x > 1.5 ? linear_to_pq(c) : pc.mode.x > 0.5 ? linear_to_srgb(c) : c; }
 
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     if (p.x >= int(pc.out_.x) || p.y >= int(pc.out_.y)) return;
     vec2 ratio = pc.view.xy / pc.out_.xy;
-    vec2 a = pc.out_.zw + vec2(p) * ratio, b = a + ratio;   // the pixel's rectangle in source texels
+    // the pixel's rectangle in source texels: its share of the crop, at least one texel wide around its centre
+    vec2 mid = pc.out_.zw + (vec2(p) + 0.5) * ratio, half_ = 0.5 * max(ratio, vec2(1.0));
+    vec2 a = mid - half_, b = mid + half_;
     ivec2 lo = ivec2(floor(a)), hi = min(ivec2(ceil(b)), lo + MAX_TAPS);
-    ivec2 last = ivec2(pc.view.zw) - 1;
+    // reads stay inside the crop: a rectangle that reaches past its edge repeats the edge texel
+    ivec2 first = ivec2(pc.out_.zw), last = first + ivec2(pc.view.xy) - 1;
     vec3 sum = vec3(0.0);
     float total = 0.0;
     for (int y = lo.y; y < hi.y; y++) {
         float wy = min(b.y, float(y + 1)) - max(a.y, float(y));
         for (int x = lo.x; x < hi.x; x++) {
             float w = wy * (min(b.x, float(x + 1)) - max(a.x, float(x)));
-            sum += w * texelFetch(src, clamp(ivec2(x, y), ivec2(0), last), 0).rgb;
+            sum += w * decode(texelFetch(src, clamp(ivec2(x, y), first, last), 0).rgb);
             total += w;
         }
     }
-    imageStore(dst, p, vec4(sum / max(total, 1e-6), 1.0));
+    imageStore(dst, p, vec4(encode(sum / max(total, 1e-6)), 1.0));
 }

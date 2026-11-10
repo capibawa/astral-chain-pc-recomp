@@ -676,7 +676,10 @@ static void rows_antialiasing(void) {
         opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC,
                    later ? restart : nullptr);
     }
-    // RCAS before the HUD in every mode, or on the present for frames without the scene (vk_dlaa.c presharp)
+    // How the present scales to the window (vk_fsr.c), then RCAS: the present's last step where FSR 1 scales, before
+    // the HUD where the window copies the picture or the bilinear blit scales it (vk_dlaa.c presharp)
+    static const UiTextId scaler[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
+    opt_choice("AC_UPSCALER", UI_MENU_UPSCALER, scaler, 2, UI_MENU_UPSCALER_DESC);
     opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
     if (run == VK_TAA_DLAA || run == VK_TAA_DLSS) {
         static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};

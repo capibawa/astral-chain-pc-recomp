@@ -556,10 +556,11 @@ static struct Size *size_for(VkCommandBuffer cb, uint32_t w, uint32_t h, uint32_
 //   size the sharpening waits for the composite (bloom, tonemap and grading into a target of the scene's size, with the
 //   scene depth) and runs as the next pass begins; from there to the frame's end every draw that samples the composite
 //   reads the sharpened copy instead (vk_dlaa_swap_same): SMAA's passes and the output pass the HUD is drawn over.
-// A frame sharpened here tells the present (vk_dlaa_presharpened, set at vk_dlaa_frame) to copy at 1:1 or reduce
-// without RCAS; a frame without the scene (the title, a load, a menu over no scene) is sharpened at the present as
-// before. Neither runs while the present enlarges the picture (vk_fsr.c vk_fsr_present_upscales): RCAS then stays on the
-// present, after EASU, as FSR 1 orders its two passes.
+// A frame sharpened here tells the present (vk_dlaa_presharpened, set at vk_dlaa_frame) to leave RCAS out; a frame
+// without the scene (the title, a load, a menu over no scene) is sharpened at the present as before. Neither runs
+// while the present scales the picture with FSR's passes (vk_fsr.c vk_fsr_present_scales): RCAS then stays on the
+// present, after EASU or the area average, the last step at the window's resolution. So the scene is sharpened here
+// when the window copies the picture, or when upscaler = bilinear scales it, which sharpens nothing itself.
 static void full_barrier(VkCommandBuffer cb);
 static volatile int32_t presharp;   // vk_dlaa_presharpened: the last frame was sharpened before its HUD
 
@@ -594,7 +595,7 @@ static int sharp_image(VkCommandBuffer cb, uint32_t w, uint32_t h, VkImage *img,
 
 // Returns the view the scaling draw should read: the sharpened image, or out as it is.
 static VkImageView sharpen(VkCommandBuffer cb, struct Size *e) {
-    if (!vk_fsr_rcas_on() || vk_fsr_present_upscales() ||
+    if (!vk_fsr_rcas_on() || vk_fsr_present_scales() ||
         (!e->sharp && !sharp_image(cb, e->ow, e->oh, &e->sharp, &e->sharp_mem, &e->sharp_view)))
         return e->out_view;
     D.sharp_done = vk_fsr_rcas(cb, e->out_view, e->sharp_view, e->ow, e->oh);
@@ -616,7 +617,7 @@ static void native_free(void) {   // the image may still be in flight: deferred,
 
 static VkImageView sharpen_native(VkExec *ex) {
     const VkExecTarget *t = &D.comp;
-    if (!vk_fsr_rcas_on() || vk_fsr_present_upscales()) return VK_NULL_HANDLE;
+    if (!vk_fsr_rcas_on() || vk_fsr_present_scales()) return VK_NULL_HANDLE;
     if (NS.img && (NS.w != t->width || NS.h != t->height)) native_free();
     if (!NS.img) {
         if (!sharp_image(ex->cb, t->width, t->height, &NS.img, &NS.mem, &NS.view)) return VK_NULL_HANDLE;
@@ -1453,8 +1454,8 @@ void vk_dlaa_frame(void) {
     // the frame that ends here was sharpened before its HUD, or the present sharpens it; then the next frame starts
     presharp_set(D.sharp_done);
     D.sharp_done = 0;
-    // SMAA or nothing: the passes are watched for sharpening, unless the present enlarges the picture and sharpens it
-    D.sharp_only = taa == TAA_NONE && vk_fsr_rcas_on() && !vk_fsr_present_upscales();
+    // SMAA or nothing: the passes are watched for sharpening, unless the present scales the picture and sharpens it
+    D.sharp_only = taa == TAA_NONE && vk_fsr_rcas_on() && !vk_fsr_present_scales();
     if (!D.sharp_only && !dl_active()) D.post = 0;
     dlss_mode(taa, want);
     if (N.available) preset_check();

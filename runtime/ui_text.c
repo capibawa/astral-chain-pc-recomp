@@ -62,6 +62,13 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                 "after a restart.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automatic",
     [UI_MENU_OUTPUT_RES_NEXT] = ", %s after restart",
+    [UI_MENU_UPSCALER] = "Scaling to the window",
+    [UI_MENU_UPSCALER_DESC] = "How the picture is scaled when the window is not its size. AMD FSR 1 keeps edges and "
+                              "detail sharper in a larger window and averages every rendered pixel in a smaller one, "
+                              "with the sharpening as its last step. Bilinear is the plain filter: softer, and the "
+                              "lightest on the GPU; the 3D scene is then sharpened before the HUD is drawn. Applies at "
+                              "once.",
+    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Picture shape",
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
                             "screen): keep the picture's shape with black bars, or stretch it over the window.",
@@ -78,9 +85,10 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_ANISO_GAME] = "Game",
     [UI_MENU_ANISO_AUTO] = "Auto",
     [UI_MENU_SHARPNESS] = "Sharpness",
-    [UI_MENU_SHARPNESS_DESC] = "AMD RCAS sharpening of the 3D scene, in every anti-aliasing and upscaling mode. It runs "
-                               "before the HUD is drawn, so the HUD stays crisp; 0 turns it off completely. Applies at "
-                               "once.",
+    [UI_MENU_SHARPNESS_DESC] = "AMD RCAS sharpening, in every anti-aliasing and upscaling mode; 0 turns it off "
+                               "completely. Where the picture is the window's size it sharpens the 3D scene before the "
+                               "HUD is drawn; where FSR 1 scales the picture to the window it is the last step, HUD "
+                               "included. Applies at once.",
     [UI_MENU_COLOR] = "Colour",
     [UI_MENU_COLOR_PRESET] = "Colour profile",
     [UI_MENU_COLOR_PRESET_DESC] = "Sets the four values below. Vivid: more contrast and saturation, shadows opened a "
@@ -473,6 +481,13 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                 "сразу до него, а интерфейс рисуется в полном разрешении. Действует после перезапуска.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Автоматически",
     [UI_MENU_OUTPUT_RES_NEXT] = ", после перезапуска %s",
+    [UI_MENU_UPSCALER] = "Масштабирование под окно",
+    [UI_MENU_UPSCALER_DESC] = "Как картинка подгоняется под окно, когда их размеры различаются. AMD FSR 1 сохраняет края "
+                              "и детали чётче в окне большего размера и усредняет все отрисованные пиксели в окне "
+                              "меньшего размера; резкость повышается последним шагом. Билинейное — простой фильтр: "
+                              "мягче и легче всего для видеокарты; резкость 3D-сцены тогда повышается до отрисовки "
+                              "интерфейса. Действует сразу.",
+    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Билинейное",
     [UI_MENU_ASPECT] = "Форма картинки",
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
                             "форму картинки с чёрными полосами или растянуть её на всё окно.",
@@ -489,9 +504,10 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_ANISO_GAME] = "Игра",
     [UI_MENU_ANISO_AUTO] = "Авто",
     [UI_MENU_SHARPNESS] = "Резкость",
-    [UI_MENU_SHARPNESS_DESC] = "Повышение резкости 3D-сцены (AMD RCAS) в любом режиме сглаживания и масштабирования. "
-                               "Выполняется до отрисовки интерфейса, поэтому он остаётся чётким; 0 полностью выключает. "
-                               "Действует сразу.",
+    [UI_MENU_SHARPNESS_DESC] = "Повышение резкости (AMD RCAS) в любом режиме сглаживания и масштабирования; 0 полностью "
+                               "выключает. Когда картинка совпадает с окном, резкость 3D-сцены повышается до отрисовки "
+                               "интерфейса; когда FSR 1 подгоняет картинку под окно, это последний шаг, вместе с "
+                               "интерфейсом. Действует сразу.",
     [UI_MENU_AA] = "Сглаживание",
     [UI_MENU_AA_OFF] = "Выкл.", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
     [UI_MENU_UPSCALING] = "Временное масштабирование",
@@ -899,14 +915,22 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
                                 "após reiniciar.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automático",
     [UI_MENU_OUTPUT_RES_NEXT] = ", %s após reiniciar",
+    [UI_MENU_UPSCALER] = "Escala para a janela",
+    [UI_MENU_UPSCALER_DESC] = "Como a imagem é ajustada quando a janela tem outro tamanho. O AMD FSR 1 mantém bordas e "
+                              "detalhes mais nítidos numa janela maior e faz a média de todos os pixels renderizados "
+                              "numa menor, com a nitidez como último passo. Bilinear é o filtro simples: mais suave e o "
+                              "mais leve para a GPU; a cena 3D recebe então a nitidez antes de o HUD ser desenhado. Vale "
+                              "na hora.",
+    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
     [UI_MENU_ASPECT] = "Formato da imagem",
     [UI_MENU_ASPECT_DESC] = "Quando o formato da janela difere do da resolução do jogo (uma imagem 16:9 numa tela "
                             "21:9): manter o formato da imagem com barras pretas ou esticá-la sobre a janela.",
     [UI_MENU_ASPECT_FIT] = "Barras pretas", [UI_MENU_ASPECT_STRETCH] = "Esticar",
     [UI_MENU_SHARPNESS] = "Nitidez",
-    [UI_MENU_SHARPNESS_DESC] = "Nitidez AMD RCAS da cena 3D, em todos os modos de antisserrilhado e de ampliação. Roda "
-                               "antes de o HUD ser desenhado, então o HUD continua nítido; 0 desliga por completo. Vale "
-                               "na hora.",
+    [UI_MENU_SHARPNESS_DESC] = "Nitidez AMD RCAS, em todos os modos de antisserrilhado e de ampliação; 0 desliga por "
+                               "completo. Quando a imagem tem o tamanho da janela, a cena 3D recebe a nitidez antes de o "
+                               "HUD ser desenhado; quando o FSR 1 ajusta a imagem à janela, é o último passo, HUD "
+                               "incluído. Vale na hora.",
     [UI_MENU_AA] = "Antisserrilhado",
     [UI_MENU_AA_OFF] = "Desligado", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
     [UI_MENU_UPSCALING] = "Ampliação temporal",
@@ -1338,6 +1362,11 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
                                 "绘制。重启后生效。",
     [UI_MENU_OUTPUT_RES_AUTO] = "自动",
     [UI_MENU_OUTPUT_RES_NEXT] = "，重启后 %s",
+    [UI_MENU_UPSCALER] = "缩放到窗口",
+    [UI_MENU_UPSCALER_DESC] = "画面与窗口大小不同时的缩放方式。AMD FSR 1 在较大的窗口中更好地保留边缘和细节，"
+                              "在较小的窗口中对所有渲染像素取平均，最后一步进行锐化。双线性是普通滤波：更柔和，"
+                              "对 GPU 负担最小；此时 3D 场景在绘制 HUD 之前锐化。立即生效。",
+    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "双线性",
     [UI_MENU_ASPECT] = "画面宽高比",
     [UI_MENU_ASPECT_DESC] = "当窗口宽高比和游戏分辨率不同时（21:9 屏幕上显示 16:9 画面）："
                             "用黑边保持画面比例，或拉伸铺满窗口。",
@@ -1347,8 +1376,9 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_FOV_DESC] = "镜头能看到多大范围，以游戏自身视野的百分比表示。"
                           "游戏中垂直视角为 50 度；过场动画保持原有构图。",
     [UI_MENU_SHARPNESS] = "锐度",
-    [UI_MENU_SHARPNESS_DESC] = "对 3D 场景进行 AMD RCAS 锐化，适用于所有抗锯齿和超分辨率模式。"
-                               "在绘制 HUD 之前进行，因此 HUD 保持清晰；0 为完全关闭。立即生效。",
+    [UI_MENU_SHARPNESS_DESC] = "AMD RCAS 锐化，适用于所有抗锯齿和超分辨率模式；0 为完全关闭。"
+                               "画面与窗口大小相同时，在绘制 HUD 之前锐化 3D 场景；"
+                               "由 FSR 1 缩放到窗口时，锐化是最后一步，包括 HUD。立即生效。",
     [UI_MENU_AA] = "抗锯齿",
     [UI_MENU_AA_OFF] = "关", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
     [UI_MENU_UPSCALING] = "时域超分辨率",

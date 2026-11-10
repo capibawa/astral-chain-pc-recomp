@@ -107,14 +107,15 @@ void vk_present_blit(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int
 // FSR 1 on the present (vk_fsr.c): records EASU (+ RCAS) of src's crop rectangle {x, y, w, h} into the rectangle out
 // {x, y, w, h} of dst, a swapchain image in TRANSFER_DST; src is in GENERAL and fmt its format. 1 = FSR recorded, 2 =
 // the crop is larger than out and was reduced by an area average (+ RCAS), 0 = nothing recorded (the setting says
-// bilinear, or FSR is not available): the caller blits.
+// bilinear, or FSR is not available): the caller blits. encoding: what src's values are, for the area average, which
+// works in linear light: 0 linear, 1 sRGB code values, 2 PQ code values (HDR10).
 int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
-                  VkImage dst, const int out[4]);
+                  VkImage dst, const int out[4], int encoding);
 // RCAS alone, from src (sampled) into dst (an RGBA16F storage view), both w x h and in GENERAL, on any command buffer
 // (vk_dlaa.c sharpens DLAA, DLSS and FSR 3 with it before the HUD). 1 = recorded; 0 = nothing (vk_fsr_rcas_on is 0).
 int vk_fsr_rcas(VkCommandBuffer cb, VkImageView src, VkImageView dst, uint32_t w, uint32_t h);
-int vk_fsr_rcas_on(void);   // sharpness above 0, FSR's pipelines made and not the AC_UPSCALER=bilinear test knob
-int vk_fsr_present_upscales(void);   // the last present enlarged the picture with EASU: RCAS belongs after it
+int vk_fsr_rcas_on(void);   // sharpness above 0 and FSR's pipelines made
+int vk_fsr_present_scales(void);   // the last present scaled the picture with FSR's passes: RCAS belongs after them
 void vk_fsr_release(void);   // before the device goes away
 // Colour adjustment on the present (vk_color.c): with AC_COLOR_* away from their defaults, records a pass that writes
 // src's crop rectangle {x, y, w, h}, adjusted, into an RGBA16F image of that size in GENERAL and returns it (the caller

@@ -650,8 +650,14 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     VkFormat pfmt = graded ? VK_FORMAT_R16G16B16A16_SFLOAT : fmt;
     const int *prect = graded ? grect : rect;
     // FSR 1 (vk_fsr.c) unless the picture's rectangle is the crop's size with nothing to sharpen; else the blit
-    int fsr = general ? vk_fsr_record(cb, slot, psrc, pfmt, graded ? cw : w, graded ? ch : h, prect, dst, to) : 0;
+    // What the picture's values are, for the area average (vk_fsr.c): PQ codes on an HDR10 swapchain; else sRGB codes,
+    // which the game writes as bytes and vk_color.c keeps, unless the image has an sRGB format, whose view decodes them
+    int coded = g_sc_hdr ? 2 : pfmt == VK_FORMAT_R8G8B8A8_SRGB || pfmt == VK_FORMAT_B8G8R8A8_SRGB ? 0 : 1;
+    int fsr = general ? vk_fsr_record(cb, slot, psrc, pfmt, graded ? cw : w, graded ? ch : h, prect, dst, to, coded) : 0;
     g_scaler = fsr == 2 ? 3 : fsr ? 2 : cw != to[2] || ch != to[3];
+    // The blit: bilinear when it scales. A picture within two pixels of its place is not scaled (vk_fsr.c takes it as
+    // the same size too): a linear blit would smear that pixel over the whole width, the nearest one repeats one line.
+    int near = cw - to[2] >= -2 && cw - to[2] <= 2 && ch - to[3] >= -2 && ch - to[3] <= 2;
     if (!fsr) {
         if (general)   // a GENERAL source (vk_texture.c images): earlier submissions' writes become visible to the blit here
             sync_barrier(cb, psrc, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
@@ -661,7 +667,7 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
             .srcOffsets = {{prect[0], prect[1], 0}, {prect[0] + cw, prect[1] + ch, 1}},
             .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .dstOffsets = {{to[0], to[1], 0}, {to[0] + to[2], to[1] + to[3], 1}}};
         vkCmdBlitImage(cb, psrc, general ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, near ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
         if (general)   // later submissions that write the source wait for the blit's read
             sync_barrier(cb, psrc, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0,
                          VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0);
