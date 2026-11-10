@@ -1123,11 +1123,14 @@ static void camera_planes(float *near_z, float *far_z, float *fov_y) {
     *fov_y = (float)(2.0 * atan(1.0 / fabs(m[5])));
 }
 
-// The quality setting DLSS is created with, from the scene's share of the output width.
+// The quality setting DLSS is created with, from the scene's share of the output width. The limits lie halfway between
+// the modes' shares (67, 58, 50 and 33 %), because resolution.c scene_for moves a scene to the nearest size on its
+// grid: at ssaa = 1440p Quality is 65 % and Ultra Performance 35 %, which limits at the shares themselves called
+// Balanced and would call the wrong model's mode.
 static int perf_quality(uint32_t w, uint32_t ow) {
     if (w >= ow) return NGX_PERFQ_DLAA;
     double k = (double)w / ow;
-    return k >= 0.66 ? 2 : k >= 0.57 ? 1 : k >= 0.49 ? 0 : 3;
+    return k >= 0.625 ? 2 : k >= 0.54 ? 1 : k >= 0.42 ? 0 : 3;
 }
 
 // src: what DLSS reads, NULL for the light target; dst: the scaling pass's target, NULL for DLAA in place. In place,
