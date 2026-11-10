@@ -277,6 +277,8 @@ void res_init(void);                                       // after rt_patches_i
 float res_dlss_lod_bias(void);                             // while upscaling: texture LOD bias (<= 0)
 int res_dlss_mode(const char *mode);                       // upscaling changed while running: new scene size
 int res_temporal_at_start(void);                           // the settings at start run DLAA or upscale a smaller scene
+int res_dlss_model(void);                                  // the DLSS model's file is next to the executable
+void res_scene_for(const char *mode, unsigned out[2]);     // the scene size upscaling_quality mode gives now
 const char *res_output_asked(void);                        // output_res as read at start ("" before; may be "auto")
 void res_auto_next(unsigned out[2]);                       // the size output_res = auto would take at the next start
 void res_auto_drop(void);                                  // auto's screen size given up: nothing temporal can run

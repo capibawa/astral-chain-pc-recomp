@@ -57,6 +57,7 @@ void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);
 void res_game_size(unsigned out[2]);
 const char *res_output_asked(void);
+void res_scene_for(const char *mode, unsigned out[2]);
 int res_scene_live(void);
 int rt_patch_set(const char *name);
 void res_auto_next(unsigned out[2]);
@@ -382,6 +383,8 @@ extern "C" void menu_vk_release(void) {
 // TOTK_MENU_TEST_SET=<frame>:<key>=<value>[,<key>=<value>...][;<frame>:...]: cfg_set of each key (TOTK_ prefix
 // optional) at that presented frame; changes live settings with no input, menu open or not. totk.ini is written only by
 // the pseudo-key SAVE=1 (cfg_save, as a row change does; a failed write shows the menu's save note).
+// TOTK_MENU_TEST_FOCUS=<key>: the cursor goes to that row of the first tab when the hook opens the menu, so its shot
+// shows rows further down the page.
 enum { TAB_SCREEN, TAB_GAME, TAB_SOUND, TAB_CONTROLS, TAB_MENU, TAB_MODS, TAB_CHEATS, TAB_COUNT };
 enum { TEST_PAGE_FRAMES = 30, TEST_SETS = 16 };
 struct TestSet { uint64_t frame; char key[64], value[64]; };
@@ -630,60 +633,70 @@ static const char *present_note(void) {
     return note;
 }
 
-// Anti-aliasing and temporal upscaling (runtime/vk_dlaa.c taa_pick decides what runs from these). DLAA and DLSS are
-// offered where DLSS can run, or may after a restart (NGX is loaded only when a setting at start asks for it); where it
-// cannot, a stored dlaa shows as SMAA and a stored dlss as Off, which is what runs. DLAA takes precedence: upscaling is
-// greyed out under it and shows DLSS, which DLAA runs at full resolution. The quality row needs the scene patch set
-// (recomp/patches-v101.txt) and upscaling on; sharpness follows it in every mode; the DLSS model and trails rows show
-// while DLAA or DLSS runs.
-// Both settings are live once what they need was set up at start, so their rows carry "after restart" only for a choice
-// this run cannot apply: DLAA or DLSS while NGX was not loaded (dlss_state 2), and upscaling while the scene patch set
-// stayed off because nothing temporal was set at start (resolution.c res_scene_live).
-static void rows_antialiasing(void) {
+// Upscaling and anti-aliasing, laid out as other games do (runtime/vk_dlaa.c taa_pick decides what runs from these):
+// the upscaler (Off, Automatic, NVIDIA DLSS, AMD FSR 3), its mode with the native one first (DLAA for DLSS, Native AA for
+// FSR 3) and the size the scene is drawn at under the value, sharpness, then the game's own anti-aliasing for when no
+// upscaler runs, and DLSS's own rows. Every row applies at once: NGX is loaded at start wherever DLSS could run
+// (vk_dlaa_wanted) and the scene can be rebuilt at any time (resolution.c scene_only_init). Rows that do not apply now are
+// greyed out with the reason instead of hidden, so the list keeps its shape; DLSS stays in the upscaler's list where it
+// cannot run, with a note saying why, so players on other GPUs see that it exists.
+static void rows_upscaling(void) {
     int dlss = vk_dlaa_dlss_state(), run = vk_dlaa_running();
-    const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
-    const char *restart = menu_text(UI_MENU_AFTER_RESTART);
-    bool later = false;   // the upscaling choice (and so its quality) waits for a restart
+    const char *up = cfg_value("AC_UPSCALING");
+    bool off = !strcmp(up, "off");
+    // the upscaler that runs for the setting: auto is DLSS where it can run, FSR 3 elsewhere
+    bool uses_dlss = (!strcmp(up, "dlss") || !strcmp(up, "auto")) && dlss;
+    static char note_up[96];
     {
-        static const char *const vals[] = {"off", "smaa", "dlaa"};
-        const char *names[] = {ui_text(UI_MENU_AA_OFF), ui_text(UI_MENU_AA_SMAA), ui_text(UI_MENU_AA_DLAA)};
-        opt_choice_list("AC_ANTI_ALIASING", UI_MENU_AA, vals, names, dlss ? 3 : 2, UI_MENU_AA_DESC,
-                        !dlss && !strcmp(aa, "dlaa") ? 1 : -1, dlss == 2 && !strcmp(aa, "dlaa") ? restart : nullptr);
-    }
-    bool dlaa = !strcmp(aa, "dlaa") && dlss;
-    if (dlaa) opt_disable_next(UI_MENU_UPSCALING_BY_DLAA);
-    {
-        static const char *const all[] = {"off", "auto", "dlss", "fsr3"};
-        const UiTextId ids[] = {UI_MENU_UPSCALING_OFF, UI_MENU_UPSCALING_AUTO, UI_MENU_UPSCALING_DLSS,
-                                UI_MENU_UPSCALING_FSR3};
-        const char *vals[4], *names[4];
-        int n = 0, cur = -1;
-        for (int i = 0; i < 4; i++) {
-            if (!dlss && i == 2) continue;   // DLSS cannot run on this GPU
-            if (!strcmp(up, all[i])) cur = n;
-            vals[n] = all[i], names[n++] = ui_text(ids[i]);
+        static const char *const vals[] = {"off", "auto", "dlss", "fsr3"};
+        const char *names[] = {ui_text(UI_MENU_UPSCALING_OFF), ui_text(UI_MENU_UPSCALING_AUTO),
+                               ui_text(UI_MENU_UPSCALING_DLSS), ui_text(UI_MENU_UPSCALING_FSR3)};
+        const char *note = nullptr;
+        if (!strcmp(up, "dlss") && !dlss) {
+            note = menu_text(UI_MENU_UPSCALING_NO_DLSS);
+        } else if (!strcmp(up, "auto")) {
+            snprintf(note_up, sizeof note_up, menu_text(UI_MENU_PRESENT_IN_USE),
+                     ui_text(uses_dlss ? UI_MENU_UPSCALING_DLSS : UI_MENU_UPSCALING_FSR3));
+            note = note_up;
         }
-        if (cur < 0) cur = 0;   // a stored dlss where it cannot run: Off is what runs
-        if (dlaa) cur = 2;      // DLAA is DLSS at full resolution: shown as DLSS, the stored choice kept for later
-        later = !dlaa && strcmp(up, "off") &&
-                ((rt_patch_set("scene") >= 0 && !res_scene_live()) || (dlss == 2 && !strcmp(up, "dlss")));
-        opt_choice_list("AC_UPSCALING", UI_MENU_UPSCALING, vals, names, n, UI_MENU_UPSCALING_DESC, cur,
-                        later ? restart : nullptr);
+        opt_choice_list("AC_UPSCALING", UI_MENU_UPSCALING, vals, names, 4, UI_MENU_UPSCALING_DESC, -1, note);
     }
-    if (rt_patch_set("scene") >= 0 && strcmp(up, "off") && !dlaa) {
-        static const UiTextId q[] = {UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED, UI_MENU_DLSS_PERFORMANCE,
-                                     UI_MENU_DLSS_ULTRA};
-        opt_choice("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, q, 4, UI_MENU_UPSCALING_QUALITY_DESC,
-                   later ? restart : nullptr);
+    {
+        static const char *const vals[] = {"native", "quality", "balanced", "performance", "ultra_performance"};
+        // native is DLAA under DLSS (chosen, or what auto runs) and Native AA under FSR 3
+        bool dlaa = uses_dlss || !strcmp(up, "dlss");
+        const char *names[] = {ui_text(dlaa ? UI_MENU_UPSCALING_NATIVE_DLAA : UI_MENU_UPSCALING_NATIVE_AA),
+                               ui_text(UI_MENU_DLSS_QUALITY), ui_text(UI_MENU_DLSS_BALANCED),
+                               ui_text(UI_MENU_DLSS_PERFORMANCE), ui_text(UI_MENU_DLSS_ULTRA)};
+        // the size the scene is drawn at in this mode (resolution.c res_scene_for), as other games show it
+        static char note_q[48];
+        unsigned s[2];
+        res_scene_for(cfg_value("AC_UPSCALING_QUALITY"), s);
+        snprintf(note_q, sizeof note_q, "%u × %u", s[0], s[1]);   // U+00D7, the multiplication sign
+        if (off) opt_disable_next(UI_MENU_UPSCALING_MODE_OFF);
+        opt_choice_list("AC_UPSCALING_QUALITY", UI_MENU_UPSCALING_QUALITY, vals, names, 5,
+                        UI_MENU_UPSCALING_QUALITY_DESC, -1, off ? nullptr : note_q);
     }
     // RCAS in every mode and with either window scaler (vk_fsr.c vk_fsr_rcas_on): before the HUD where the window
     // copies the picture or the bilinear blit scales it (vk_dlaa.c presharp), the present's last step where FSR 1 does
     opt_slider("AC_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
-    if (run == VK_TAA_DLAA || run == VK_TAA_DLSS) {
+    {
+        // the game's SMAA, for when no upscaler runs; an upscaler anti-aliases the scene itself
+        static const char *const vals[] = {"off", "smaa"};
+        const char *names[] = {ui_text(UI_MENU_AA_OFF), ui_text(UI_MENU_AA_SMAA)};
+        if (run != VK_TAA_NONE) opt_disable_next(UI_MENU_AA_BY_UPSCALER);
+        // an old dlaa from the environment runs as SMAA (cfg.c retired_env)
+        int cur = !strcmp(cfg_value("AC_ANTI_ALIASING"), "off") ? 0 : 1;
+        opt_choice_list("AC_ANTI_ALIASING", UI_MENU_AA, vals, names, 2, UI_MENU_AA_DESC, cur);
+    }
+    if (!off && strcmp(up, "fsr3")) {   // DLSS's own rows, where DLSS is or would be the upscaler
+        bool dlss_runs = run == VK_TAA_DLAA || run == VK_TAA_DLSS;
         static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
+        if (!dlss_runs) opt_disable_next(UI_MENU_DLSS_ONLY);
         opt_choice("AC_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
         static const UiTextId chars[] = {UI_MENU_DLSS_CHARS_OFF, UI_MENU_DLSS_CHARS_LIGHT, UI_MENU_DLSS_CHARS_MEDIUM,
                                          UI_MENU_DLSS_CHARS_FULL};
+        if (!dlss_runs) opt_disable_next(UI_MENU_DLSS_ONLY);
         opt_choice("AC_DLSS_CHAR_MASK", UI_MENU_DLSS_CHARS, chars, 4, UI_MENU_DLSS_CHARS_DESC);
     }
 }
@@ -727,24 +740,27 @@ static void tab_screen(float scale) {
     row_gpu();
     static const UiTextId perf[] = {UI_MENU_PERF_OFF, UI_MENU_PERF_FPS, UI_MENU_PERF_FULL};
     opt_choice("AC_PERF_OVERLAY", UI_MENU_PERF_OVERLAY, perf, 3, UI_MENU_PERF_OVERLAY_DESC);
+    // The picture: the size the game renders, how it reaches the window, its shape and the camera's view; then the
+    // upscaler and anti-aliasing right under it, as in other games; then the detail settings.
     opt_group(UI_MENU_GRAPHICS);
     row_output_res();
-    if (rt_patch_set("shadow") >= 0) row_shadow_res();
-    // How the present scales a picture not the window's size (vk_fsr.c), FSR 1, the default, listed first. Sharpness
-    // is a row of its own, with anti-aliasing (rows_antialiasing).
+    // How the present scales a picture not the window's size (vk_fsr.c), FSR 1, the default, listed first
     static const UiTextId scaler[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
     opt_choice("AC_UPSCALER", UI_MENU_UPSCALER, scaler, 2, UI_MENU_UPSCALER_DESC);
     static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
     opt_choice("AC_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
     opt_slider("AC_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
+    opt_group(UI_MENU_UPSCALING_GROUP);
+    rows_upscaling();
+    opt_group(UI_MENU_DETAIL_GROUP);
     static const char *const aniso[] = {"auto", "game", "2", "4", "8", "16"};
     const char *aniso_names[] = {menu_text(UI_MENU_ANISO_AUTO), menu_text(UI_MENU_ANISO_GAME), "2x", "4x", "8x", "16x"};
     opt_choice_list("AC_ANISO", UI_MENU_ANISO, aniso, aniso_names, 6, UI_MENU_ANISO_DESC);
+    if (rt_patch_set("shadow") >= 0) row_shadow_res();
     row_shadow_scale();
     row_shadow_range();
     opt_slider("AC_PCSS", UI_MENU_PCSS, 0, 200, UI_MENU_PCSS_DESC, 10, "%.0f %%");
     opt_slider("AC_CONTACT_SHADOWS", UI_MENU_CONTACT_SHADOWS, 0, 100, UI_MENU_CONTACT_SHADOWS_DESC, 10, "%.0f %%");
-    rows_antialiasing();
     rows_color();
     opt_group(UI_MENU_HDR_GROUP);
     opt_toggle("AC_HDR", UI_MENU_HDR, UI_MENU_HDR_DESC);
@@ -1377,6 +1393,12 @@ extern "C" int menu_overlay_frame(uint64_t frame, const MenuTarget *t, const cha
             g_tab_request = 0;
             set_open(1);
             open = true;
+            // AC_MENU_TEST_FOCUS=<key>: the first tab's shot shows that row, scrolled into view with the cursor on it
+            if (const char *k = cfg_get("AC_MENU_TEST_FOCUS")) {
+                static char key[64];
+                snprintf(key, sizeof key, "%s%s", strncmp(k, "AC_", 3) ? "AC_" : "", k);
+                opt_focus_key(key);
+            }
         } else if (!g_perf_mode) {
             return 0;
         }

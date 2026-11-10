@@ -44,8 +44,8 @@ static const char *const known[] = {
     "FULLSCREEN", "FXAA" /* the old name of SMAA (migrate_smaa) */, "GPL", "GPL_DRAW_BUILD", "GPU", "GPU_INDEX", "GPU_NAME", "GPU_PASSES", "HDR", "HDR_GAME_NITS",
     "HDR_HUE", "HDR_PEAK_NITS", "HDR_UI_NITS", "HIGHFPS_FIX", "INPUT", "INPUT_RECORD", "INPUT_SCRIPT", "LANG", "LIB_PREBUILD",
     "LIB_PREBUILD_KEEP", "LIB_PREBUILD_THREADS", "LOCALE", "LOD_GUARD", "LSTICK_DEADZONE", "MEMORY", "MENU_LANG", "MENU_TEST",
-    "MENU_TEST_DIR", "MENU_TEST_SET", "MINIMAL_LAYOUT", "MIRROR_GAP", "MODS_DIR", "MODS_DISABLED", "MODS_ORDER", "MODS_REBUILD", "MOTION", "MOUSE_SENS", "MOVIE_HOST", "MOVIE_PACE", "MOVIE_TRACK", "MV_CHECK",
-    "ONE_PER_CORE", "OPERATION_MODE", "OUTPUT_RES", "PAD_LAYOUT", "PATCH_OUTPUT", "PATCH_SCENE", "PCSS", "PCSS_K", "PERF_OVERLAY", "PERF_SLOW_MS", "PIPELINE_CACHE", "PIPE_MEMO", "PIPE_PREBUILD", "PIPE_SKIP", "PIPE_SYNC", "PIPE_WAIT",
+    "MENU_TEST_DIR", "MENU_TEST_FOCUS", "MENU_TEST_SET", "MINIMAL_LAYOUT", "MIRROR_GAP", "MODS_DIR", "MODS_DISABLED", "MODS_ORDER", "MODS_REBUILD", "MOTION", "MOUSE_SENS", "MOVIE_HOST", "MOVIE_PACE", "MOVIE_TRACK", "MV_CHECK",
+    "ONE_PER_CORE", "OPERATION_MODE", "OUTPUT_RES", "PAD_LAYOUT", "PATCH_OUTPUT", "PATCH_SCENE", "PATCH_SCENE_REBUILD","PCSS", "PCSS_K", "PERF_OVERLAY", "PERF_SLOW_MS", "PIPELINE_CACHE", "PIPE_MEMO", "PIPE_PREBUILD", "PIPE_SKIP", "PIPE_SYNC", "PIPE_WAIT",
     "PRESENT_SHOT", "PREWARM_XLATE", "PROFILE", "PROFILE_CHAINS", "PROFILE_DIR", "PROFILE_FRAMES",
     "PROFILE_MAIN", "PROFILE_RENDER", "PROMPTS", "PUSH_SKIP", "PUSH_STAGE", "RDOC", "RDOC_DIR", "RDOC_DLL", "REALTIME", "REC_END", "REEXEC",
     "RENDER_SCALE", "REPLAY_ASYNC",
@@ -120,10 +120,11 @@ static const CfgMeta metas[] = {
     // order (ui/menu.cpp opt_choice names them in this order), fsr first
     {"UPSCALER", "fsr", "fsr|bilinear", LIVE},
     {"SHARPNESS", "50", "0..100", LIVE},
-    // anti-aliasing and temporal upscaling (vk_dlaa.c taa_pick); DLSS needs NGX, loaded at start when one of them can
-    // ask for it (vk_dlaa_wanted), so a change that first asks for DLSS takes effect after a restart
-    {"ANTI_ALIASING", "smaa", "off|smaa|dlaa", LIVE}, {"UPSCALING", "off", "off|auto|dlss|fsr3", LIVE},
-    {"UPSCALING_QUALITY", "quality", "quality|balanced|performance|ultra_performance", LIVE},
+    // the upscaler and its mode, native (DLAA or FSR 3's Native AA) first, and the game's anti-aliasing for when no
+    // upscaler runs (vk_dlaa.c taa_pick); all live. The values are in the menu's order (ui/menu.cpp rows_upscaling)
+    {"UPSCALING", "off", "off|auto|dlss|fsr3", LIVE},
+    {"UPSCALING_QUALITY", "quality", "native|quality|balanced|performance|ultra_performance", LIVE},
+    {"ANTI_ALIASING", "smaa", "off|smaa", LIVE},
     {"DLSS_PRESET", "default", "default|k|j", LIVE}, {"DLSS_CHAR_MASK", "0", "0|35|65|100", LIVE},
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     {"ANISO", "auto", "auto|game|2|4|8|16", RESTART},   // vk_texture.c sampler_features
@@ -317,11 +318,28 @@ static void migrate_aa(void) {
     drop(dlaa), drop(dlss), drop(tu), drop(smaa);
 }
 
+// DLAA was a choice of anti_aliasing that took precedence over upscaling. It is now the DLSS upscaler's native mode, as
+// in other games: anti_aliasing = dlaa is read as upscaling = dlss and upscaling_quality = native, with anti_aliasing =
+// smaa for when DLSS cannot run (DLAA fell back to SMAA before as well). The next cfg_save writes the new lines.
+static void migrate_dlaa(void) {
+    CfgEntry *aa = entry("ANTI_ALIASING");
+    if (!aa || strcasecmp(aa->value, "dlaa")) return;
+    CfgEntry *up = entry("UPSCALING"), *q = entry("UPSCALING_QUALITY");
+    free(aa->value), aa->value = strdup("smaa"), aa->dirty = 1;
+    if (up) free(up->value), up->value = strdup("dlss"), up->dirty = 1;
+    else put_new("UPSCALING", "dlss");
+    if (q) free(q->value), q->value = strdup("native"), q->dirty = 1;
+    else put_new("UPSCALING_QUALITY", "native");
+    rt_log("cfg: astralchain.ini anti_aliasing = dlaa is read as upscaling = dlss, upscaling_quality = native and "
+           "anti_aliasing = smaa");
+}
+
 static void migrate(void) {
     migrate_ssaa();
     migrate_prompts();
     migrate_smaa();
     migrate_aa();
+    migrate_dlaa();
 }
 
 int cfg_load(const char *path) {
@@ -850,9 +868,14 @@ static void retired_env(void) {
         char var[64];
         snprintf(var, sizeof var, PREFIX "%s", old[i]);
         if (getenv(var))
-            rt_log("cfg: %s is no longer read from the environment: set " PREFIX "ANTI_ALIASING (off, smaa, dlaa), "
-                   PREFIX "UPSCALING (off, auto, dlss, fsr3) and " PREFIX "UPSCALING_QUALITY instead", var);
+            rt_log("cfg: %s is no longer read from the environment: set " PREFIX "UPSCALING (off, auto, dlss, fsr3), "
+                   PREFIX "UPSCALING_QUALITY (native for DLAA, quality ... ultra_performance) and " PREFIX
+                   "ANTI_ALIASING (off, smaa) instead", var);
     }
+    const char *aa = getenv(PREFIX "ANTI_ALIASING");
+    if (aa && !strcasecmp(aa, "dlaa"))
+        rt_log("cfg: " PREFIX "ANTI_ALIASING=dlaa is read as smaa: DLAA is " PREFIX "UPSCALING=dlss with " PREFIX
+               "UPSCALING_QUALITY=native now");
 }
 
 void cfg_init(void) {

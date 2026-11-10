@@ -461,6 +461,25 @@ int probe_cfg(void) {
     CHECK(plat_file_write(path, old_layout_own, sizeof old_layout_own - 1) && cfg_load(path) == 1 &&
               EQ(cfg_get("AC_PAD_LAYOUT"), "nintendo") && EQ(cfg_get("AC_PROMPTS"), "nintendo"),
           "a prompts line of the file's own wins over 0.1.9's pad_layout = xbox_prompts");
+    // DLAA moved from anti_aliasing to the DLSS upscaler's native mode (cfg.c migrate_dlaa), saved so
+    plat_setenv("AC_ANTI_ALIASING", NULL);
+    plat_setenv("AC_UPSCALING", NULL);
+    plat_setenv("AC_UPSCALING_QUALITY", NULL);
+    static const char old_dlaa[] = "[display]\nanti_aliasing = dlaa\nupscaling = fsr3\nupscaling_quality = balanced\n";
+    CHECK(plat_file_write(path, old_dlaa, sizeof old_dlaa - 1) && cfg_load(path) == 1 &&
+              EQ(cfg_get("AC_UPSCALING"), "dlss") && EQ(cfg_get("AC_UPSCALING_QUALITY"), "native") &&
+              EQ(cfg_get("AC_ANTI_ALIASING"), "smaa"),
+          "anti_aliasing = dlaa reads as upscaling = dlss, upscaling_quality = native, anti_aliasing = smaa");
+    CHECK(cfg_save_to(path) == 1, "the read DLAA settings save");
+    saved = (char *)plat_file_read(path, &saved_n);
+    CHECK(saved && strstr(saved, "upscaling = dlss") && strstr(saved, "upscaling_quality = native") &&
+              strstr(saved, "anti_aliasing = smaa") && !strstr(saved, "dlaa"),
+          "the next save writes DLAA as the DLSS upscaler's native mode");
+    free(saved);
+    static const char old_dlaa_alone[] = "[display]\nanti_aliasing = dlaa\n";
+    CHECK(plat_file_write(path, old_dlaa_alone, sizeof old_dlaa_alone - 1) && cfg_load(path) == 1 &&
+              EQ(cfg_get("AC_UPSCALING"), "dlss") && EQ(cfg_get("AC_UPSCALING_QUALITY"), "native"),
+          "anti_aliasing = dlaa alone adds the upscaler and its mode");
     // The Steam Deck's one-time move from a stored 1080p output_res to the profile's 1280x720 (cfg.c cfg_migrate_deck_res)
     plat_setenv("AC_OUTPUT_RES", NULL);
     static const char deck_1080[] = "[display]\noutput_res = 1920x1080\n";

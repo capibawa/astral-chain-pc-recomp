@@ -1,15 +1,15 @@
-// DLAA (vk_dlaa.c): NVIDIA DLSS at the scene's own size, behind AC_DLAA (astralchain.ini dlaa = 1).
+// DLSS (DLAA and upscaling) and AMD FSR 3 (vk_dlaa.c): upscaling = off | auto | dlss | fsr3, upscaling_quality = native
+// | quality | balanced | performance | ultra_performance.
 #pragma once
 #include "vk.h"
 #include "vk_exec.h"   // VkExec, VkExecTarget, p_bind_buf
 
-int vk_dlaa_wanted(void);   // a setting at start can ask for DLSS (the device may still lack it)
-int vk_dlaa_ruled_out(void);   // it asked, and NGX has answered that DLSS cannot run in this run
+int vk_dlaa_wanted(void);   // NGX is loaded at start: the DLSS model is there or a setting asks for DLSS
+int vk_dlaa_ruled_out(void);   // NGX was wanted and has answered that DLSS cannot run in this run
 void vk_dlaa_release(void);    // the device goes away (idle): features and parameters released, NGX shut down
-// DLSS on this run: 1 it can run, 0 it cannot (NGX not up on this GPU), 2 unknown until a restart (no setting at start
-// asked for it, so NGX was not loaded). For the menu.
+// DLSS on this run: 1 it can run, 0 it cannot (no NVIDIA RTX GPU, no DLSS model, or it failed). For the menu.
 int vk_dlaa_dlss_state(void);
-// What anti-aliases the scene now (anti_aliasing, upscaling): none (SMAA or nothing), DLAA, DLSS upscaling or FSR 3.
+// What anti-aliases the scene now (upscaling): none (SMAA or nothing), DLAA, DLSS upscaling or FSR 3 (either mode).
 enum { VK_TAA_NONE, VK_TAA_DLAA, VK_TAA_DLSS, VK_TAA_FSR3 };
 int vk_dlaa_running(void);
 // 1 while DLSS or FSR 3 upscaling sharpens its picture with RCAS before the game draws its HUD (vk_dlaa.c sharpen): the

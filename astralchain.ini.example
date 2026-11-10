@@ -158,10 +158,10 @@
 # most the application pool leaves room for (1600x900, 2560x1440 and 3200x1800 among them); another size keeps
 # 1920x1080, as other shapes and sizes off that grid lose the GPU device. Above 1920x1080's pixel count the game's
 # render-target budget grows with the pixels (310 MiB up to 1920x1080, 545 MiB at 2560x1440, 1100 MiB at 3840x2160) and
-# the application pool with it. auto is 1920x1080 with SMAA or no anti-aliasing; with DLAA or temporal upscaling from
-# the start it is 2560x1440 or 3840x2160, the largest the screen holds, so DLAA anti-aliases at the screen's size, DLSS
-# or FSR 3 scale the scene straight to it, the HUD is drawn at it and the window only copies the picture. DLAA at
-# 3840x2160 is the most demanding choice. It replaces the former ssaa setting, which enlarged the game's 1080p render
+# the application pool with it. auto is 1920x1080 with no upscaler at start; with an upscaler on at start it is
+# 2560x1440 or 3840x2160, the largest the screen holds, so DLSS or FSR 3 writes the screen's size, the HUD is drawn at
+# it and the window only copies the picture. auto decides once, at start: an upscaler switched later keeps that size
+# until the next start. DLAA at 3840x2160 is the most demanding choice. It replaces the former ssaa setting, which enlarged the game's 1080p render
 # targets from outside the game; an ssaa = 1440p, 2160p or auto line is read as output_res = 2560x1440, 3840x2160 or
 # auto. Read at start.
 # output_res = 1920x1080
@@ -223,24 +223,23 @@
 # patch 0010), so the shader cache is rebuilt once after an update. Read at start.
 # pcss = 0
 
-# Anti-aliasing of the 3D scene (the HUD is drawn after it and is not touched): off, smaa (the game's own SMAA after
-# the post effects) or dlaa (NVIDIA DLSS at full resolution, on NVIDIA RTX GPUs with nvngx_dlss.dll from NVIDIA's DLSS
-# SDK next to astralchain.exe; on Linux libnvidia-ngx-dlss.so.<version> next to the executable). dlaa takes precedence
-# over upscaling below, which it leaves unused; where DLSS cannot run it falls back to smaa. While DLAA or an upscaler
-# runs, SMAA is off. Changes while the game runs take effect at once, except a first choice of DLSS (dlaa here, auto or
-# dlss below), which needs a restart: DLSS is set up at start only when a setting asks for it. Older files' dlaa, dlss,
-# smaa and temporal_upscaler lines are read as these settings.
-# anti_aliasing = smaa
-# Temporal upscaling: off, auto (NVIDIA DLSS where it can run, AMD FSR 3 everywhere else), dlss or fsr3 (any GPU). The
-# scene is drawn smaller (upscaling_quality) and scaled up to the output with its edges smoothed, for more frames per
-# second; texture filtering is sharpened to match. Both upscalers work from the same jitter and motion vectors at the
-# same point of the frame. Changes while the game runs take effect at once (the game rebuilds its scene targets at the
-# next frame), except turning it on from off, which takes effect at the next start.
+# The upscaler, as in other games: off, auto (NVIDIA DLSS where it can run, AMD FSR 3 everywhere else), dlss (NVIDIA
+# RTX GPUs, with nvngx_dlss.dll from NVIDIA's DLSS SDK next to astralchain.exe; on Linux libnvidia-ngx-dlss.so.<version>
+# next to the executable) or fsr3 (any GPU). It rebuilds the 3D scene from the frames before it, with smooth, stable
+# edges; the HUD is drawn after it. Both upscalers work from the same jitter and motion vectors at the same point of the
+# frame. DLSS is set up at start wherever its model file is there, so every choice here and below takes effect at once
+# while the game runs (the game rebuilds its scene targets at the next frame).
 # upscaling = off
-# How much smaller the scene is drawn while upscaling: quality, balanced, performance or ultra_performance (1280x720,
-# 1120x630, 960x540 or 640x360 of the game's 1920x1080, about 67, 58, 50 and 33 %). The shares apply to output_res:
-# at 3840x2160 performance renders 1920x1080 and the upscaler outputs 3840x2160 (sizes in steps of 32x18, the nearest).
+# The upscaler's mode: native (DLAA under DLSS, Native AA under FSR 3: the scene at the game resolution, the best edges
+# at the highest cost), quality, balanced, performance or ultra_performance (1280x720, 1120x630, 960x540 or 640x360 of
+# a 1920x1080 game resolution, about 67, 58, 50 and 33 %; texture filtering is sharpened to match). The shares apply to
+# output_res: at 3840x2160 performance renders 1920x1080 (sizes in steps of 32x18, the nearest).
 # upscaling_quality = quality
+# Anti-aliasing for when no upscaler runs: off or smaa (the game's own SMAA after the post effects). An upscaler
+# anti-aliases the scene itself and turns SMAA off while it runs. anti_aliasing = dlaa from an older file is read as
+# upscaling = dlss with upscaling_quality = native; older files' dlaa, dlss, smaa and temporal_upscaler lines are read
+# as these settings too.
+# anti_aliasing = smaa
 # The DLSS model, for DLAA and DLSS upscaling: default (NVIDIA's advice per mode: K for dlaa, quality and balanced, M
 # for performance), k (K in every mode, the sharpest) or j (slightly less ghosting behind moving characters, a little
 # more flicker). Any single letter a to m picks that model. Changes while the game runs take effect at once.

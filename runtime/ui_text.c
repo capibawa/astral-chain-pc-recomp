@@ -55,17 +55,18 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES] = "Game resolution",
     [UI_MENU_OUTPUT_RES_DESC] = "The size the game draws its picture and interface in. 1280 x 720 is the lightest, for "
                                 "weaker GPUs. Above 1920 x 1080 the game needs more memory (about 240 MB more at "
-                                "2560 x 1440, 790 MB at 3840 x 2160) and GPU time. Automatic: 1920 x 1080 with SMAA "
-                                "or no anti-aliasing; with DLAA or temporal upscaling it takes your screen's size "
-                                "(2560 x 1440 or 3840 x 2160), so DLAA runs at the screen's resolution, DLSS or FSR 3 "
-                                "scale straight to it, and the interface is drawn at full resolution. Takes effect "
-                                "after a restart.",
+                                "2560 x 1440, 790 MB at 3840 x 2160) and GPU time. Automatic: with an upscaler on at "
+                                "start, your screen's size (2560 x 1440 or 3840 x 2160), so DLSS or FSR 3 fills the "
+                                "screen and the interface is sharp; otherwise 1920 x 1080, which suits weaker GPUs. "
+                                "Automatic picks once, at start: switching the upscaler later keeps that size until "
+                                "the next restart. Takes effect after a restart.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automatic",
     [UI_MENU_OUTPUT_RES_NEXT] = ", %s after restart",
     [UI_MENU_UPSCALER] = "Scaling to the window",
-    [UI_MENU_UPSCALER_DESC] = "How the picture is scaled when the window's size differs from the game resolution. FSR "
-                              "keeps edges and detail sharper than bilinear.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
+    [UI_MENU_UPSCALER_DESC] = "How the finished picture is fitted to the window when their sizes differ. Sharp keeps "
+                              "edges and detail crisper; Smooth is softer and the lightest on the GPU. This is not the "
+                              "upscaler below, which renders the 3D scene smaller and rebuilds it.",
+    [UI_MENU_UPSCALER_FSR] = "Sharp (FSR 1)", [UI_MENU_UPSCALER_BILINEAR] = "Smooth (bilinear)",
     [UI_MENU_ASPECT] = "Picture shape",
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
                             "screen): keep the picture's shape with black bars, or stretch it over the window.",
@@ -78,13 +79,12 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                 "sharper. Above 1024 the shadows cost more GPU time and video memory.",
     [UI_MENU_SHADOW_RES_GAME] = "Game (changes)",
     [UI_MENU_ANISO] = "Texture filtering",
-    [UI_MENU_ANISO_DESC] = "Anisotropic filtering of surface textures: ground, roads and walls seen at a shallow angle stay sharp into the distance instead of blurring. Game: the level the game asks for, as on the Switch. Auto: 16x with 3D render scale 1440p, twice the game's level at 2160p, the game's level otherwise.",
+    [UI_MENU_ANISO_DESC] = "Anisotropic filtering of surface textures: ground, roads and walls seen at a shallow angle stay sharp into the distance instead of blurring. Game: the level the game asks for, as on the Switch. Auto: 16x above 1920 x 1080, twice the game's level at 3840 x 2160, the game's level at 1920 x 1080 and below.",
     [UI_MENU_ANISO_GAME] = "Game",
     [UI_MENU_ANISO_AUTO] = "Auto",
     [UI_MENU_SHARPNESS] = "Sharpness",
-    [UI_MENU_SHARPNESS_DESC] = "AMD RCAS sharpening in every anti-aliasing and upscaling mode, with either scaling to "
-                               "the window; the HUD stays as the game drew it unless FSR 1 scales the picture. 0 turns "
-                               "it off.",
+    [UI_MENU_SHARPNESS_DESC] = "Sharpens the 3D picture (AMD RCAS), with or without an upscaler; the interface is left "
+                               "as it is. 0 turns sharpening off. Applies at once.",
     [UI_MENU_COLOR] = "Colour",
     [UI_MENU_COLOR_PRESET] = "Colour profile",
     [UI_MENU_COLOR_PRESET_DESC] = "Sets the four values below. Vivid: more contrast and saturation, shadows opened a "
@@ -128,34 +128,36 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_SHADOW_RANGE_DESC] = "Moves the steps where shadows turn softer (the game's 20, 40, 80 and 160 m) further "
                                   "away. Spreads the shadow map over more ground: raise Shadow resolution with it. "
                                   "Takes effect at the next start.",
+    [UI_MENU_UPSCALING_GROUP] = "Upscaling and anti-aliasing",
+    [UI_MENU_DETAIL_GROUP] = "Detail",
     [UI_MENU_AA] = "Anti-aliasing",
-    [UI_MENU_AA_DESC] = "Smooths the edges of the 3D scene; the HUD is not touched. SMAA: the game's own. DLAA: NVIDIA "
-                        "DLSS at full resolution, smoother and steadier than SMAA (NVIDIA RTX GPUs with nvngx_dlss.dll "
-                        "next to astralchain.exe; not offered where it cannot run). With the automatic 3D render "
-                        "scale DLAA runs at your screen's resolution, the most demanding choice: for more frames, "
-                        "use temporal upscaling instead. Temporal upscaling, when on, replaces SMAA; DLAA replaces "
-                        "upscaling. Choosing DLAA for the first time takes effect after a "
-                        "restart.",
-    [UI_MENU_AA_OFF] = "Off", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
-    [UI_MENU_UPSCALING] = "Temporal upscaling",
-    [UI_MENU_UPSCALING_DESC] = "Draws the 3D scene at a lower resolution and scales it up with its edges smoothed, for "
-                               "more frames per second. Automatic: NVIDIA DLSS where it can run, AMD FSR 3 everywhere "
-                               "else. FSR 3 runs on any GPU; DLSS looks better where both run. The game's SMAA is off "
-                               "while it runs. Changes apply at once, except turning it on from Off, which takes effect "
-                               "after a restart.",
+    [UI_MENU_AA_DESC] = "Smooths jagged edges of the 3D picture when no upscaler is on. SMAA is the game's own. An "
+                        "upscaler smooths edges itself and replaces it. Applies at once.",
+    [UI_MENU_AA_OFF] = "Off", [UI_MENU_AA_SMAA] = "SMAA",
+    [UI_MENU_AA_BY_UPSCALER] = "The upscaler smooths edges",
+    [UI_MENU_UPSCALING] = "Upscaler",
+    [UI_MENU_UPSCALING_DESC] = "Rebuilds the 3D picture from the frames before it, for smooth, stable edges. NVIDIA DLSS "
+                               "needs an NVIDIA RTX GPU and looks best; AMD FSR 3 runs on any GPU. Automatic picks DLSS "
+                               "where it can run and FSR 3 everywhere else. Choose how it works in Upscaler mode. "
+                               "Applies at once.",
     [UI_MENU_UPSCALING_OFF] = "Off", [UI_MENU_UPSCALING_AUTO] = "Automatic", [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS",
     [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
-    [UI_MENU_UPSCALING_BY_DLAA] = "DLAA runs NVIDIA DLSS at full resolution",
-    [UI_MENU_UPSCALING_QUALITY] = "Upscaling quality",
-    [UI_MENU_UPSCALING_QUALITY_DESC] = "How much smaller the 3D scene is drawn: Quality, Balanced, Performance and Ultra "
-                                       "Performance draw it at 67, 58, 50 and 33 % of the game resolution (times the 3D "
-                                       "render scale). Lower is faster and softer. Applies at once.",
+    [UI_MENU_UPSCALING_NO_DLSS] = "Not available: needs an NVIDIA RTX GPU",
+    [UI_MENU_UPSCALING_MODE_OFF] = "Choose an upscaler first",
+    [UI_MENU_UPSCALING_NATIVE_DLAA] = "DLAA", [UI_MENU_UPSCALING_NATIVE_AA] = "Native AA",
+    [UI_MENU_DLSS_ONLY] = "Only while NVIDIA DLSS runs",
+    [UI_MENU_UPSCALING_QUALITY] = "Upscaler mode",
+    [UI_MENU_UPSCALING_QUALITY_DESC] = "The resolution the 3D scene is drawn at before the upscaler brings it to the game "
+                                       "resolution (shown under the value). DLAA and Native AA keep the full resolution "
+                                       "for the best edges at the highest cost. Quality, Balanced, Performance and Ultra "
+                                       "Performance draw 67, 58, 50 and 33 % of it: lower is faster and softer. Applies "
+                                       "at once.",
     [UI_MENU_DLSS_QUALITY] = "Quality", [UI_MENU_DLSS_BALANCED] = "Balanced",
     [UI_MENU_DLSS_PERFORMANCE] = "Performance", [UI_MENU_DLSS_ULTRA] = "Ultra Performance",
     [UI_MENU_DLSS_PRESET] = "DLSS model",
-    [UI_MENU_DLSS_PRESET_DESC] = "Which DLSS model runs. Automatic follows NVIDIA's advice per mode: K for DLAA, Quality "
-                                 "and Balanced, M for Performance. J: slightly less ghosting behind moving characters, a "
-                                 "little more flicker. K: the sharpest model in every mode. Applies at once.",
+    [UI_MENU_DLSS_PRESET_DESC] = "Which DLSS model runs (advanced). Automatic follows NVIDIA's advice for each mode. "
+                                 "K: the sharpest in every mode. J: slightly less ghosting behind moving characters, a "
+                                 "little more flicker. Applies at once.",
     [UI_MENU_DLSS_PRESET_DEFAULT] = "Automatic", [UI_MENU_DLSS_PRESET_K] = "K (sharpest)",
     [UI_MENU_DLSS_PRESET_J] = "J (less ghosting)",
     [UI_MENU_DLSS_CHARS] = "DLSS character trails",
@@ -470,16 +472,18 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES] = "Разрешение игры",
     [UI_MENU_OUTPUT_RES_DESC] = "Размер, в котором игра рисует картинку и интерфейс. 1280 × 720 — самый лёгкий, для "
                                 "слабых видеокарт. Выше 1920 × 1080 игре нужно больше памяти (примерно на 240 МБ при "
-                                "2560 × 1440 и на 790 МБ при 3840 × 2160) и времени GPU. Автоматически: 1920 × 1080, "
-                                "а с DLAA или временным масштабированием — размер вашего экрана (2560 × 1440 или "
-                                "3840 × 2160), так что DLAA работает в разрешении экрана, DLSS или FSR 3 масштабирует "
-                                "сразу до него, а интерфейс рисуется в полном разрешении. Действует после перезапуска.",
+                                "2560 × 1440 и на 790 МБ при 3840 × 2160) и времени GPU. Автоматически: если при "
+                                "запуске включён апскейлер — размер вашего экрана (2560 × 1440 или 3840 × 2160), так "
+                                "что DLSS или FSR 3 заполняет экран, а интерфейс остаётся чётким; иначе 1920 × 1080, "
+                                "что подходит слабым видеокартам. Выбор делается один раз при запуске: смена "
+                                "апскейлера позже сохраняет этот размер до перезапуска. Действует после перезапуска.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Автоматически",
     [UI_MENU_OUTPUT_RES_NEXT] = ", после перезапуска %s",
     [UI_MENU_UPSCALER] = "Масштабирование под окно",
-    [UI_MENU_UPSCALER_DESC] = "Как картинка подгоняется под окно, когда его размер отличается от разрешения игры. FSR "
-                              "сохраняет края и детали чётче билинейного.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Билинейное",
+    [UI_MENU_UPSCALER_DESC] = "Как готовая картинка подгоняется под окно, когда их размеры различаются. «Чётко» "
+                              "сохраняет края и детали резче; «Мягко» мягче и легче всего для видеокарты. Это не "
+                              "апскейлер ниже, который рисует 3D-сцену меньше и восстанавливает её.",
+    [UI_MENU_UPSCALER_FSR] = "Чётко (FSR 1)", [UI_MENU_UPSCALER_BILINEAR] = "Мягко (билинейное)",
     [UI_MENU_ASPECT] = "Форма картинки",
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
                             "форму картинки с чёрными полосами или растянуть её на всё окно.",
@@ -492,20 +496,36 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
                                 "их ровными и чётче. Выше 1024 тени требуют больше времени GPU и видеопамяти.",
     [UI_MENU_SHADOW_RES_GAME] = "Как в игре (меняется)",
     [UI_MENU_ANISO] = "Фильтрация текстур",
-    [UI_MENU_ANISO_DESC] = "Анизотропная фильтрация текстур поверхностей: земля, дороги и стены под острым углом остаются чёткими вдали, а не размываются. Игра: уровень, который запрашивает игра, как на Switch. Авто: 16x при масштабе 3D-отрисовки 1440p, удвоенный уровень игры при 2160p, иначе уровень игры.",
+    [UI_MENU_ANISO_DESC] = "Анизотропная фильтрация текстур поверхностей: земля, дороги и стены под острым углом остаются чёткими вдали, а не размываются. Игра: уровень, который запрашивает игра, как на Switch. Авто: 16x выше 1920 × 1080, удвоенный уровень игры при 3840 × 2160, уровень игры при 1920 × 1080 и ниже.",
     [UI_MENU_ANISO_GAME] = "Игра",
     [UI_MENU_ANISO_AUTO] = "Авто",
     [UI_MENU_SHARPNESS] = "Резкость",
-    [UI_MENU_SHARPNESS_DESC] = "Повышение резкости (AMD RCAS) в любом режиме сглаживания и масштабирования, при любом "
-                               "масштабировании под окно; интерфейс остаётся таким, как его нарисовала игра, если "
-                               "картинку не масштабирует FSR 1. 0 выключает его.",
+    [UI_MENU_SHARPNESS_DESC] = "Повышает резкость 3D-картинки (AMD RCAS), с апскейлером и без; интерфейс не "
+                               "затрагивается. 0 выключает повышение резкости. Действует сразу.",
+    [UI_MENU_UPSCALING_GROUP] = "Апскейлинг и сглаживание",
+    [UI_MENU_DETAIL_GROUP] = "Детализация",
     [UI_MENU_AA] = "Сглаживание",
-    [UI_MENU_AA_OFF] = "Выкл.", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
-    [UI_MENU_UPSCALING] = "Временное масштабирование",
+    [UI_MENU_AA_DESC] = "Сглаживает зубчатые края 3D-картинки, когда апскейлер выключен. SMAA — собственное сглаживание "
+                        "игры. Апскейлер сглаживает края сам и заменяет его. Действует сразу.",
+    [UI_MENU_AA_OFF] = "Выкл.", [UI_MENU_AA_SMAA] = "SMAA",
+    [UI_MENU_AA_BY_UPSCALER] = "Края сглаживает апскейлер",
+    [UI_MENU_UPSCALING] = "Апскейлер",
+    [UI_MENU_UPSCALING_DESC] = "Восстанавливает 3D-картинку по предыдущим кадрам — края становятся ровными и "
+                               "стабильными. NVIDIA DLSS требует видеокарту NVIDIA RTX и выглядит лучше всего; AMD FSR 3 "
+                               "работает на любой видеокарте. «Автоматически» выбирает DLSS, где он доступен, и FSR 3 "
+                               "в остальных случаях. Режим работы задаётся в «Режиме апскейлера». Действует сразу.",
     [UI_MENU_UPSCALING_OFF] = "Выкл.", [UI_MENU_UPSCALING_AUTO] = "Автоматически",
     [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS", [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
-    [UI_MENU_UPSCALING_BY_DLAA] = "DLAA запускает NVIDIA DLSS в полном разрешении",
-    [UI_MENU_UPSCALING_QUALITY] = "Качество масштабирования",
+    [UI_MENU_UPSCALING_NO_DLSS] = "Недоступно: нужна видеокарта NVIDIA RTX",
+    [UI_MENU_UPSCALING_MODE_OFF] = "Сначала выберите апскейлер",
+    [UI_MENU_UPSCALING_NATIVE_DLAA] = "DLAA", [UI_MENU_UPSCALING_NATIVE_AA] = "Native AA",
+    [UI_MENU_DLSS_ONLY] = "Только при работе NVIDIA DLSS",
+    [UI_MENU_UPSCALING_QUALITY] = "Режим апскейлера",
+    [UI_MENU_UPSCALING_QUALITY_DESC] = "Разрешение, в котором рисуется 3D-сцена, прежде чем апскейлер доводит её до "
+                                       "разрешения игры (показано под значением). DLAA и Native AA сохраняют полное "
+                                       "разрешение: лучшие края при наибольшей нагрузке. «Качество», «Баланс», "
+                                       "«Производительность» и «Макс. производительность» рисуют 67, 58, 50 и 33 % "
+                                       "от него: ниже — быстрее и мягче. Действует сразу.",
     [UI_MENU_COLOR] = "Цвет",
     [UI_MENU_COLOR_PRESET] = "Цветовой профиль",
     [UI_MENU_COLOR_PRESET_DESC] = "Задаёт четыре значения ниже. «Яркий»: больше контраста и насыщенности, тени немного "
@@ -898,32 +918,49 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES] = "Resolução do jogo",
     [UI_MENU_OUTPUT_RES_DESC] = "O tamanho em que o jogo desenha a imagem e a interface. 1280 × 720 é o mais leve, "
                                 "para GPUs mais fracas. Acima de 1920 × 1080 o jogo precisa de mais memória (cerca de "
-                                "240 MB a mais em 2560 × 1440, 790 MB em 3840 × 2160) e tempo de GPU. Automático: "
-                                "1920 × 1080, exceto com DLAA ou upscaling temporal, quando usa o tamanho da sua tela "
-                                "(2560 × 1440 ou 3840 × 2160), para o DLAA rodar na resolução da tela, o DLSS ou o "
-                                "FSR 3 escalar direto para ela e a interface ser desenhada em resolução total. Vale "
-                                "após reiniciar.",
+                                "240 MB a mais em 2560 × 1440, 790 MB em 3840 × 2160) e tempo de GPU. Automático: com "
+                                "um upscaler ligado ao iniciar, o tamanho da sua tela (2560 × 1440 ou 3840 × 2160), "
+                                "para o DLSS ou o FSR 3 preencher a tela e a interface ficar nítida; senão 1920 × 1080, "
+                                "bom para GPUs mais fracas. A escolha é feita uma vez, ao iniciar: trocar o upscaler "
+                                "depois mantém esse tamanho até reiniciar. Vale após reiniciar.",
     [UI_MENU_OUTPUT_RES_AUTO] = "Automático",
     [UI_MENU_OUTPUT_RES_NEXT] = ", %s após reiniciar",
     [UI_MENU_UPSCALER] = "Escala para a janela",
-    [UI_MENU_UPSCALER_DESC] = "Como a imagem é ajustada quando o tamanho da janela difere da resolução do jogo. O FSR "
-                              "mantém bordas e detalhes mais nítidos que o bilinear.",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "Bilinear",
+    [UI_MENU_UPSCALER_DESC] = "Como a imagem pronta é ajustada à janela quando os tamanhos diferem. Nítido mantém "
+                              "bordas e detalhes mais definidos; Suave é mais macio e o mais leve para a GPU. Não é o "
+                              "upscaler abaixo, que desenha a cena 3D menor e a reconstrói.",
+    [UI_MENU_UPSCALER_FSR] = "Nítido (FSR 1)", [UI_MENU_UPSCALER_BILINEAR] = "Suave (bilinear)",
     [UI_MENU_ASPECT] = "Formato da imagem",
     [UI_MENU_ASPECT_DESC] = "Quando o formato da janela difere do da resolução do jogo (uma imagem 16:9 numa tela "
                             "21:9): manter o formato da imagem com barras pretas ou esticá-la sobre a janela.",
     [UI_MENU_ASPECT_FIT] = "Barras pretas", [UI_MENU_ASPECT_STRETCH] = "Esticar",
     [UI_MENU_SHARPNESS] = "Nitidez",
-    [UI_MENU_SHARPNESS_DESC] = "Nitidez AMD RCAS em todos os modos de antisserrilhado e de ampliação, com qualquer escala "
-                               "para a janela; o HUD fica como o jogo o desenhou, a menos que o FSR 1 ajuste a imagem. "
-                               "0 desliga.",
+    [UI_MENU_SHARPNESS_DESC] = "Aumenta a nitidez da imagem 3D (AMD RCAS), com ou sem upscaler; a interface não é "
+                               "alterada. 0 desliga a nitidez. Vale na hora.",
+    [UI_MENU_UPSCALING_GROUP] = "Upscaling e antisserrilhado",
+    [UI_MENU_DETAIL_GROUP] = "Detalhes",
     [UI_MENU_AA] = "Antisserrilhado",
-    [UI_MENU_AA_OFF] = "Desligado", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
-    [UI_MENU_UPSCALING] = "Ampliação temporal",
+    [UI_MENU_AA_DESC] = "Suaviza as bordas serrilhadas da imagem 3D quando nenhum upscaler está ligado. SMAA é o do "
+                        "próprio jogo. Um upscaler suaviza as bordas sozinho e o substitui. Vale na hora.",
+    [UI_MENU_AA_OFF] = "Desligado", [UI_MENU_AA_SMAA] = "SMAA",
+    [UI_MENU_AA_BY_UPSCALER] = "O upscaler suaviza as bordas",
+    [UI_MENU_UPSCALING] = "Upscaler",
+    [UI_MENU_UPSCALING_DESC] = "Reconstrói a imagem 3D a partir dos quadros anteriores, com bordas suaves e estáveis. O "
+                               "NVIDIA DLSS precisa de uma GPU NVIDIA RTX e tem a melhor imagem; o AMD FSR 3 roda em "
+                               "qualquer GPU. Automático escolhe o DLSS onde ele roda e o FSR 3 nos outros casos. Escolha "
+                               "como ele trabalha em Modo do upscaler. Vale na hora.",
     [UI_MENU_UPSCALING_OFF] = "Desligado", [UI_MENU_UPSCALING_AUTO] = "Automático",
     [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS", [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
-    [UI_MENU_UPSCALING_BY_DLAA] = "O DLAA roda o NVIDIA DLSS na resolução cheia",
-    [UI_MENU_UPSCALING_QUALITY] = "Qualidade da ampliação",
+    [UI_MENU_UPSCALING_NO_DLSS] = "Indisponível: precisa de uma GPU NVIDIA RTX",
+    [UI_MENU_UPSCALING_MODE_OFF] = "Escolha um upscaler primeiro",
+    [UI_MENU_UPSCALING_NATIVE_DLAA] = "DLAA", [UI_MENU_UPSCALING_NATIVE_AA] = "Native AA",
+    [UI_MENU_DLSS_ONLY] = "Só enquanto o NVIDIA DLSS roda",
+    [UI_MENU_UPSCALING_QUALITY] = "Modo do upscaler",
+    [UI_MENU_UPSCALING_QUALITY_DESC] = "A resolução em que a cena 3D é desenhada antes de o upscaler levá-la à resolução "
+                                       "do jogo (mostrada sob o valor). DLAA e Native AA mantêm a resolução cheia: as "
+                                       "melhores bordas, com o maior custo. Qualidade, Equilibrado, Desempenho e Ultra "
+                                       "Desempenho desenham 67, 58, 50 e 33 % dela: mais baixo é mais rápido e mais "
+                                       "suave. Vale na hora.",
 
     [UI_MENU_FPS_LIMIT] = "Taxa de quadros",
     [UI_MENU_FPS_LIMIT_DESC] = "60 FPS usa o patch de 60 fps do jogo; 30 FPS o desliga. Lido na hora.",
@@ -1153,8 +1190,8 @@ static const char *const text_pt_br[UI_TEXT_COUNT] = {
     [UI_MENU_ANISO] = "Filtragem de texturas",
     [UI_MENU_ANISO_DESC] = "Filtragem anisotrópica das texturas de superfície: chão, estradas e paredes vistos em "
                            "ângulo raso continuam nítidos ao longe em vez de borrar. Jogo: o nível que o jogo pede, "
-                           "como no Switch. Auto: 16x com escala de renderização 3D 1440p, o dobro do nível do jogo "
-                           "em 2160p, o nível do jogo nos demais casos.",
+                           "como no Switch. Auto: 16x acima de 1920 × 1080, o dobro do nível do jogo em "
+                           "3840 × 2160, o nível do jogo em 1920 × 1080 e abaixo.",
     [UI_MENU_ANISO_GAME] = "Jogo",
     [UI_MENU_ANISO_AUTO] = "Auto",
     [UI_MENU_COLOR] = "Cor",
@@ -1342,15 +1379,15 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_OUTPUT_RES] = "游戏分辨率",
     [UI_MENU_OUTPUT_RES_DESC] = "游戏绘制画面和界面的尺寸。1280 × 720 负担最轻，适合较弱的 GPU。高于 1920 × 1080 时，"
                                 "游戏需要更多内存（2560 × 1440 约多 240 MB，3840 × 2160 约多 790 MB）和 GPU 时间。"
-                                "自动：1920 × 1080；启用 DLAA 或时间性超分辨率时则采用屏幕尺寸（2560 × 1440 或 "
-                                "3840 × 2160），让 DLAA 以屏幕分辨率运行、DLSS 或 FSR 3 直接放大到屏幕，界面以完整分辨率"
-                                "绘制。重启后生效。",
+                                "自动：启动时开启了超分辨率则采用屏幕尺寸（2560 × 1440 或 3840 × 2160），让 DLSS 或 "
+                                "FSR 3 铺满屏幕、界面保持清晰；否则为 1920 × 1080，适合较弱的 GPU。只在启动时选择一次："
+                                "之后更换超分辨率技术会保持该尺寸直到重启。重启后生效。",
     [UI_MENU_OUTPUT_RES_AUTO] = "自动",
     [UI_MENU_OUTPUT_RES_NEXT] = "，重启后 %s",
     [UI_MENU_UPSCALER] = "缩放到窗口",
-    [UI_MENU_UPSCALER_DESC] = "窗口大小与游戏分辨率不同时画面的缩放方式。"
-                              "FSR 比双线性更能保留边缘和细节。",
-    [UI_MENU_UPSCALER_FSR] = "AMD FSR 1", [UI_MENU_UPSCALER_BILINEAR] = "双线性",
+    [UI_MENU_UPSCALER_DESC] = "窗口与画面大小不同时，成品画面如何适配窗口。锐利能更好地保留边缘和细节；"
+                              "柔和更柔和，对 GPU 负担最小。这不是下方的超分辨率技术，后者以较低分辨率绘制 3D 场景再重建。",
+    [UI_MENU_UPSCALER_FSR] = "锐利（FSR 1）", [UI_MENU_UPSCALER_BILINEAR] = "柔和（双线性）",
     [UI_MENU_ASPECT] = "画面宽高比",
     [UI_MENU_ASPECT_DESC] = "当窗口宽高比和游戏分辨率不同时（21:9 屏幕上显示 16:9 画面）："
                             "用黑边保持画面比例，或拉伸铺满窗口。",
@@ -1360,15 +1397,27 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
     [UI_MENU_FOV_DESC] = "镜头能看到多大范围，以游戏自身视野的百分比表示。"
                           "游戏中垂直视角为 50 度；过场动画保持原有构图。",
     [UI_MENU_SHARPNESS] = "锐度",
-    [UI_MENU_SHARPNESS_DESC] = "AMD RCAS 锐化，适用于所有抗锯齿和超分辨率模式及任一窗口缩放方式；"
-                               "除非由 FSR 1 缩放画面，HUD 保持游戏原样。0 为关闭。",
+    [UI_MENU_SHARPNESS_DESC] = "锐化 3D 画面（AMD RCAS），无论是否开启超分辨率；界面不受影响。0 为关闭锐化。立即生效。",
+    [UI_MENU_UPSCALING_GROUP] = "超分辨率与抗锯齿",
+    [UI_MENU_DETAIL_GROUP] = "细节",
     [UI_MENU_AA] = "抗锯齿",
-    [UI_MENU_AA_OFF] = "关", [UI_MENU_AA_SMAA] = "SMAA", [UI_MENU_AA_DLAA] = "DLAA",
-    [UI_MENU_UPSCALING] = "时域超分辨率",
+    [UI_MENU_AA_DESC] = "未开启超分辨率时平滑 3D 画面的锯齿边缘。SMAA 为游戏自带。超分辨率技术会自行平滑边缘并取代它。立即生效。",
+    [UI_MENU_AA_OFF] = "关", [UI_MENU_AA_SMAA] = "SMAA",
+    [UI_MENU_AA_BY_UPSCALER] = "由超分辨率技术平滑边缘",
+    [UI_MENU_UPSCALING] = "超分辨率技术",
+    [UI_MENU_UPSCALING_DESC] = "根据之前的帧重建 3D 画面，边缘平滑而稳定。NVIDIA DLSS 需要 NVIDIA RTX 显卡，画质最好；"
+                               "AMD FSR 3 可在任何显卡上运行。自动：能运行 DLSS 时用 DLSS，其他情况用 FSR 3。"
+                               "在“超分辨率模式”中选择其工作方式。立即生效。",
     [UI_MENU_UPSCALING_OFF] = "关", [UI_MENU_UPSCALING_AUTO] = "自动",
     [UI_MENU_UPSCALING_DLSS] = "NVIDIA DLSS", [UI_MENU_UPSCALING_FSR3] = "AMD FSR 3",
-    [UI_MENU_UPSCALING_BY_DLAA] = "DLAA 以全分辨率运行 NVIDIA DLSS",
-    [UI_MENU_UPSCALING_QUALITY] = "超分辨率质量",
+    [UI_MENU_UPSCALING_NO_DLSS] = "不可用：需要 NVIDIA RTX 显卡",
+    [UI_MENU_UPSCALING_MODE_OFF] = "请先选择超分辨率技术",
+    [UI_MENU_UPSCALING_NATIVE_DLAA] = "DLAA", [UI_MENU_UPSCALING_NATIVE_AA] = "Native AA",
+    [UI_MENU_DLSS_ONLY] = "仅在 NVIDIA DLSS 运行时",
+    [UI_MENU_UPSCALING_QUALITY] = "超分辨率模式",
+    [UI_MENU_UPSCALING_QUALITY_DESC] = "超分辨率技术将 3D 场景放大到游戏分辨率之前的绘制分辨率（显示在数值下方）。"
+                                       "DLAA 和 Native AA 保持完整分辨率：边缘最好，负担最大。质量、平衡、性能和"
+                                       "超级性能分别绘制其 67%、58%、50% 和 33%：越低越快，画面越柔和。立即生效。",
     [UI_MENU_COLOR] = "色彩",
     [UI_MENU_COLOR_PRESET] = "色彩配置",
     [UI_MENU_COLOR_PRESET_DESC] = "同时设置下面四项。鲜艳：对比度和饱和度更高，暗部略微提亮（为 OLED 屏幕调校）。"
@@ -1718,7 +1767,7 @@ static const char *const text_zh_hans[UI_TEXT_COUNT] = {
                                 "GPU 时间和显存。",
     [UI_MENU_SHADOW_RES_GAME] = "游戏默认（会变化）",
     [UI_MENU_ANISO] = "纹理过滤",
-    [UI_MENU_ANISO_DESC] = "表面纹理的各向异性过滤：以小角度看到的地面、道路和墙壁在远处依然清晰，而不会模糊。游戏：使用游戏请求的级别，与 Switch 上相同。自动：3D 渲染比例为 1440p 时为 16x，2160p 时为游戏级别的两倍，其他情况使用游戏的级别。",
+    [UI_MENU_ANISO_DESC] = "表面纹理的各向异性过滤：以小角度看到的地面、道路和墙壁在远处依然清晰，而不会模糊。游戏：使用游戏请求的级别，与 Switch 上相同。自动：高于 1920 × 1080 时为 16x，3840 × 2160 时为游戏级别的两倍，1920 × 1080 及以下使用游戏的级别。",
     [UI_MENU_ANISO_GAME] = "游戏",
     [UI_MENU_ANISO_AUTO] = "自动",
     [UI_MENU_HDR_GROUP] = "HDR",

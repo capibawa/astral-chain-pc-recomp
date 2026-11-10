@@ -1,6 +1,6 @@
-// DLAA and temporal upscaling: NVIDIA DLSS at the scene's own size (anti_aliasing = dlaa) or from a smaller scene
-// (upscaling = dlss or auto), and AMD FSR 3 (vk_fsr3.c; upscaling = fsr3 or auto) at the same point; taa_pick says which
-// runs. NGX is loaded at run time from the driver's
+// The temporal upscalers: NVIDIA DLSS (upscaling = dlss or auto) and AMD FSR 3 (vk_fsr3.c; upscaling = fsr3 or auto) at
+// the same point of the frame, each at the scene's own size (upscaling_quality = native: DLAA, or FSR 3's Native AA) or
+// from a smaller scene; taa_pick says which runs. NGX is loaded at run time from the driver's
 // NGX core: on Windows _nvngx.dll, found through HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore; on Linux
 // libnvidia-ngx.so.1, which the NVIDIA driver installs on the library path. NGX loads the DLSS model from the folder of
 // the executable: nvngx_dlss.dll on Windows, libnvidia-ngx-dlss.so.<version> on Linux. No NVIDIA SDK code or header is
@@ -110,15 +110,16 @@ static int p_getp(const NgxParam *p, const char *n, void **v) { return NGX_OK(((
 #define DLSS_MODEL "libnvidia-ngx-dlss.so.<version>"
 #endif
 
-// NGX is brought up only when a setting at start can ask for DLSS (anti_aliasing = dlaa, upscaling = auto or dlss):
-// its device extensions can only be asked for at device creation, and loading the driver's NGX core on every NVIDIA
-// machine would cost start time and change the device without DLSS. A change that first asks for DLSS applies after a
-// restart.
+// NGX is brought up at start wherever DLSS could run: the DLSS model's file is next to the executable (resolution.c
+// res_dlss_model), or a setting asks for DLSS (upscaling = auto or dlss; NGX then says why it cannot run). Its device
+// extensions can only be asked for at device creation, so this is decided once, and then DLSS and DLAA can be chosen in
+// the menu while the game runs, as in other games. Without an NVIDIA driver the NGX core is not there and nothing more
+// happens (core_load).
 int vk_dlaa_wanted(void) {
     static int wanted = -1;
     if (wanted < 0) {
         const char *up = cfg_value("AC_UPSCALING");
-        wanted = !strcmp(cfg_value("AC_ANTI_ALIASING"), "dlaa") || !strcmp(up, "auto") || !strcmp(up, "dlss");
+        wanted = res_dlss_model() || !strcmp(up, "auto") || !strcmp(up, "dlss");
     }
     return wanted;
 }
@@ -372,7 +373,7 @@ static struct {
     uint64_t why[4];             // history resets: scene size changed, no camera, scene target changed, gap
     int on;                      // the dlaa setting, read at each present (the menu switches it live)
     int fsr3;                    // the frame's upscaler is AMD FSR 3 (vk_fsr3.c), not DLSS (taa_pick)
-    int native;                  // it runs at the scene's own size: DLAA (anti_aliasing = dlaa)
+    int native;                  // it runs at the scene's own size: DLAA or Native AA (upscaling_quality = native)
     int preset, preset_dirty;    // the DLSS model features are created with (preset_value); a change pending
     unsigned cfg_seen;           // cfg_version when preset was read
     uint64_t last_eval_ns;       // plat_now_ns of the previous evaluation (FrameTimeDeltaInMsec)
@@ -382,25 +383,22 @@ const VkTexImage *vk_dlaa_swap_img;
 VkImageView vk_dlaa_swap_view;
 int vk_dlaa_swap_same;
 
-// What runs, from anti_aliasing and upscaling (both live; cfg.c): DLAA (DLSS at the scene's own size) when anti_aliasing
-// is dlaa and DLSS can run, which takes precedence over upscaling; else the upscaling setting: dlss (where it can
-// run), fsr3, or auto (DLSS where it can run, FSR 3 everywhere else), at upscaling_quality's scene size. DLSS can run
-// where NGX came up (an RTX card with the DLSS model next to the executable, and a setting at start that asked for it,
-// vk_dlaa_wanted). Where DLAA cannot run, anti_aliasing = dlaa falls back to SMAA (vk_dlaa_skip_draw). Both upscalers
-// run at the same point of the frame on the same inputs. *mode: "dlaa" for the scene's own size, else the quality.
+// What runs, from upscaling and upscaling_quality (both live; cfg.c), as in other games: the upscaler (dlss where it can
+// run, fsr3, or auto: DLSS where it can run, FSR 3 everywhere else) in its mode, native (DLAA, or FSR 3's Native AA: the
+// scene at its own size) or a smaller scene. DLSS can run where NGX came up (an RTX card with the DLSS model next to the
+// executable, vk_dlaa_wanted). With no upscaler running, anti_aliasing (off or smaa) applies (vk_dlaa_skip_draw). Both
+// upscalers run at the same point of the frame on the same inputs. *mode: "dlaa" for the scene's own size, else the
+// quality.
 enum { TAA_NONE, TAA_DLSS, TAA_FSR3 };
 static int taa_pick(const char **mode) {
-    const char *aa = cfg_value("AC_ANTI_ALIASING"), *up = cfg_value("AC_UPSCALING");
+    const char *up = cfg_value("AC_UPSCALING"), *q = cfg_value("AC_UPSCALING_QUALITY");
     // each upscaler fails on its own (dl_fail): auto goes on to FSR 3 when DLSS failed in this run, and an FSR 3
-    // failure leaves DLAA and DLSS as they were
+    // failure leaves DLSS as it was
     int dlss = N.available && !D.failed;
-    *mode = "dlaa";
-    if (!strcmp(aa, "dlaa") && dlss) return TAA_DLSS;
-    // Upscaling shrinks the scene through the scene patch set, which is switched on at start only when a setting then
-    // asks for something temporal (resolution.c scene_only_init). Chosen later, it waits for the restart the menu
-    // names: started at once it would jitter and resolve the scene at the game's size, at a cost and for no gain.
-    if (rt_patch_set("scene") >= 0 && !res_scene_live()) return TAA_NONE;
-    *mode = cfg_value("AC_UPSCALING_QUALITY");
+    // A smaller scene needs the scene patch sets (ready from the start unless AC_PATCH_SCENE=0, resolution.c
+    // scene_only_init); without it the upscaler runs in its native mode.
+    int native = !strcmp(q, "native") || (rt_patch_set("scene") >= 0 && !res_scene_live());
+    *mode = native ? "dlaa" : q;
     if (!strcmp(up, "dlss")) return dlss ? TAA_DLSS : TAA_NONE;
     if (!strcmp(up, "auto") && dlss) return TAA_DLSS;
     if (!strcmp(up, "fsr3") || !strcmp(up, "auto")) return !D.fsr3_failed && vk_fsr3_ready() ? TAA_FSR3 : TAA_NONE;
@@ -410,10 +408,9 @@ static int taa_pick(const char **mode) {
 // The frame's upscaler runs: switched on (vk_dlaa_frame) and not failed since.
 static int dl_active(void) { return D.on && !(D.fsr3 ? D.fsr3_failed : D.failed); }
 
-int vk_dlaa_dlss_state(void) {
-    if (N.available && !D.failed) return 1;
-    return N.tried || vk_dlaa_wanted() ? 0 : 2;   // NGX tried and not up: DLSS cannot run; never asked: after a restart
-}
+// 1 where DLSS can run in this run (NGX up with the model, and not failed since), else 0. NGX is loaded at start
+// wherever the model is there (vk_dlaa_wanted), so no later choice waits for a restart.
+int vk_dlaa_dlss_state(void) { return N.available && !D.failed; }
 
 int vk_dlaa_running(void) { return !dl_active() ? 0 : D.fsr3 ? VK_TAA_FSR3 : D.native ? VK_TAA_DLAA : VK_TAA_DLSS; }
 
@@ -1462,7 +1459,10 @@ void vk_dlaa_frame(void) {
     if (N.available) preset_check();
     int fsr3 = taa == TAA_FSR3, on = taa != TAA_NONE;
     if (on != D.on || (on && (fsr3 != D.fsr3 || native != D.native))) {
-        rt_log("dlaa: %s", !on ? "off" : fsr3 ? "AMD FSR 3 upscaling" : native ? "DLAA" : "DLSS upscaling");
+        rt_log("dlaa: %s", !on      ? "off"
+                           : fsr3   ? (native ? "AMD FSR 3 Native AA" : "AMD FSR 3 upscaling")
+                           : native ? "DLAA"
+                                    : "DLSS upscaling");
         D.on = on, D.fsr3 = fsr3, D.native = native;
         // either way the next DLAA frame starts a new history from an unjittered frame
         D.reset = 1, D.cam_prev_ok = D.view_ok = 0, D.jit_ok = D.jit_used = D.armed = D.done = D.gbuf = D.ended = 0;

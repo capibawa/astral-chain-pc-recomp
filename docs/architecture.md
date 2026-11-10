@@ -134,12 +134,17 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   in-game menu is drawn into an RGBA8 image and blended on at the HUD's white. Without an HDR10 surface format
   (Windows with "Use HDR" off, a compositor without colour management) the swapchain stays SDR and the tonemap writes
   the game's own result. `AC_SHOTS` reads the window texture, so its pictures clip highlights in HDR.
-- Anti-aliasing and temporal upscaling (`vk_dlaa.c` `taa_pick`): `anti_aliasing = off | smaa | dlaa` (default smaa)
-  and `upscaling = off | auto | dlss | fsr3` (default off) with `upscaling_quality`. DLAA takes precedence over upscaling
-  and falls back to SMAA where DLSS cannot run; auto is DLSS where it runs, FSR 3 elsewhere; SMAA runs only while
-  nothing temporal does. NGX is loaded at start only when one of them can ask for DLSS. Older `dlaa`, `dlss`, `smaa`
-  and `temporal_upscaler` lines are read as the new keys (`cfg.c` `migrate_aa`).
-- DLAA (`anti_aliasing = dlaa`). NVIDIA DLSS at the scene's own size, through the driver's NGX core loaded
+- Upscaling and anti-aliasing (`vk_dlaa.c` `taa_pick`), laid out as in other games: `upscaling = off | auto | dlss |
+  fsr3` (default off) picks the upscaler, auto being DLSS where it runs and FSR 3 elsewhere; `upscaling_quality =
+  native | quality | balanced | performance | ultra_performance` its mode, native being DLAA under DLSS and Native AA
+  under FSR 3 (the scene at its own size); `anti_aliasing = off | smaa` (default smaa) applies while no upscaler runs.
+  All three are live: NGX is loaded at start wherever the DLSS model is next to the executable or a setting asks for
+  DLSS (`vk_dlaa_wanted`), and the scene can be rebuilt at any time (below). The menu groups them under the game resolution,
+  shows the scene size under the mode, keeps DLSS in the list where it cannot run with a note why, and greys out rows
+  that do not apply instead of hiding them (`ui/menu.cpp` `rows_upscaling`). Older `anti_aliasing = dlaa` lines are read
+  as `upscaling = dlss` with `upscaling_quality = native` (`cfg.c` `migrate_dlaa`); older `dlaa`, `dlss`, `smaa` and
+  `temporal_upscaler` lines as the new keys (`cfg.c` `migrate_aa`).
+- DLAA (`upscaling = dlss`, `upscaling_quality = native`). NVIDIA DLSS at the scene's own size, through the driver's NGX core loaded
   at run time (no SDK code compiled in; `_nvngx.dll` on Windows, `libnvidia-ngx.so.1` on Linux). It runs on the R11G11B10F light target at the bloom chain's third level, after
   the light target's last pass, so the composite, post effects and the HUD read the anti-aliased picture. The scene's
   draws get a sub-pixel Halton viewport jitter (16 phases for DLAA, 8 x the squared upscaling ratio otherwise); motion
@@ -168,21 +173,25 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   projection in the camera block. No reactive or transparency mask and no RCAS (DLSS runs unsharpened as well).
 - Upscaling (`upscaling_quality = quality | balanced | performance | ultra_performance`, live, as in the TotK Recomp). The game
   keeps three dynamic-resolution levels, each with its own scene targets, and draws its output and HUD at the render
-  size the `res` set gives it (`output_res`). With DLAA or an upscaler able to run from the settings at start the
-  `scene` patch set (`recomp/patches-v101.txt`, which takes the level-size sites ahead of `res`) gives every level the
-  size `resolution.c` writes on the patch page: the game resolution for DLAA and with upscaling off, else the quality's
-  share of it (1280x720, 1120x630, 960x540 or 640x360 of 1920x1080). The scene must be 32n x 18n, or the first 3D frame
+  size the `res` set gives it (`output_res`). While the scene is smaller than that (an upscaling mode), the `scene`
+  patch set (`recomp/patches-v101.txt`, which takes the level-size sites ahead of `res`) gives every level the size
+  `resolution.c` writes on the patch page, the quality's share of the game resolution (1280x720, 1120x630, 960x540 or 640x360 of 1920x1080). The scene must be 32n x 18n, or the first 3D frame
   loses the device, with or without DLSS evaluating (the failing pass is not identified: `resolution.c` `scene_for`
   lists the measured sizes); every `output_res` size is on that grid, so the nearest step below it is taken. A mode change in the menu
   makes the framework's per-frame window update (0x9db520), on the game's thread, write the new size and report a display
   change, so the game runs its own docked / handheld sequence, which rebuilds the scene targets at the next frame
-  (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). With upscaling switched off, DLAA chosen, nothing able to run or DLSS failed in the
+  (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). With the upscaler switched off, the native mode chosen, nothing able to run or DLSS failed in the
   run, the scene goes back to the game's size the same way. The whole scene chain, bloom and composite
   included, then runs at that size and the game's SMAA blending pass scales it to the output. The upscaler runs on the
   composite at the begin of that pass, and the pass samples its output in the composite's place (`vk_dlaa_swap_img`);
   SMAA is off meanwhile and material textures take a mip bias of log2(scene / output). Both sizes follow `output_res`
-  (3840x2160 performance: 1920x1080 to 3840x2160). With SMAA or nothing at start the set is off and the game renders as before.
-  `output_res = auto` is 1920x1080 with SMAA or nothing; with DLAA or upscaling from the start (`resolution.c`
+  (3840x2160 performance: 1920x1080 to 3840x2160). With no upscaler or a native mode the `scene` set is off and the
+  levels keep the game's own docked and handheld sizes: the game resolution in handheld, where the game made 1280x720
+  targets, left a level without its target and crashed in main+0x9d0df0. The display-change site is a set of its own,
+  `scene_rebuild`, on from the start (`AC_PATCH_SCENE=0` keeps both off), so the upscaler can be turned on while
+  playing; `resolution.c` `scene_switch` switches the `scene` set with each size on the game's thread, right before
+  the rebuild. In handheld the game draws 1280x720 itself, so an upscaling mode there has no larger output to scale to.
+  `output_res = auto` is 1920x1080 with no upscaler at start; with one on at start (`resolution.c`
   `res_temporal_at_start`) the game renders 2560x1440 or 3840x2160, the largest the screen holds (`resolution.c`
   `res_auto`, `gfx_display_height`, the primary monitor before the window exists), so DLAA runs at the screen's size,
   an upscaler writes it, the HUD is drawn at it and the window has nothing left to scale.
