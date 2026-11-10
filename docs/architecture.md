@@ -168,20 +168,20 @@ Every guest thread is a host thread. Astral Chain assumes Horizon's scheduler: t
   projection in the camera block. No reactive or transparency mask and no RCAS (DLSS runs unsharpened as well).
 - Upscaling (`upscaling_quality = quality | balanced | performance | ultra_performance`, live, as in the TotK Recomp). The game
   keeps three dynamic-resolution levels, each with its own scene targets, and draws its output and HUD at the render
-  size `res1080` sets. With DLAA or an upscaler able to run from the settings at start the `scene` patch set
-  (`recomp/patches-v101.txt`) gives every level the size `resolution.c` writes on the patch page: 1920x1080 for DLAA and with upscaling off,
-  1280x720, 1120x630, 960x540 or 640x360 for the others. The scene must be 32n x 18n both as the game sees it and after
-  `ssaa`, or the first 3D frame loses the device, with or without DLSS evaluating (the failing pass is not identified:
-  `resolution.c` `scene_for` lists the measured sizes). So at `ssaa = 1440p` the modes render 1248x702, 1152x648, 960x540
-  and 672x378, and with `res1062` and `ssaa`, where no smaller size fits, DLSS runs as DLAA. A mode change in the menu
+  size the `res` set gives it (`output_res`). With DLAA or an upscaler able to run from the settings at start the
+  `scene` patch set (`recomp/patches-v101.txt`, which takes the level-size sites ahead of `res`) gives every level the
+  size `resolution.c` writes on the patch page: the game resolution for DLAA and with upscaling off, else the quality's
+  share of it (1280x720, 1120x630, 960x540 or 640x360 of 1920x1080). The scene must be 32n x 18n, or the first 3D frame
+  loses the device, with or without DLSS evaluating (the failing pass is not identified: `resolution.c` `scene_for`
+  lists the measured sizes); every `output_res` size is on that grid, so the nearest step below it is taken. A mode change in the menu
   makes the framework's per-frame window update (0x9db520), on the game's thread, write the new size and report a display
   change, so the game runs its own docked / handheld sequence, which rebuilds the scene targets at the next frame
   (`AC_DLSS_CYCLE=<frames>` steps through the modes for tests). With upscaling switched off, DLAA chosen, nothing able to run or DLSS failed in the
   run, the scene goes back to the game's size the same way. The whole scene chain, bloom and composite
   included, then runs at that size and the game's SMAA blending pass scales it to the output. The upscaler runs on the
   composite at the begin of that pass, and the pass samples its output in the composite's place (`vk_dlaa_swap_img`);
-  SMAA is off meanwhile and material textures take a mip bias of log2(scene / output). `ssaa` multiplies both sizes
-  (2160p performance: 1920x1080 to 3840x2160). With SMAA or nothing at start the set is off and the game renders as before.
+  SMAA is off meanwhile and material textures take a mip bias of log2(scene / output). Both sizes follow `output_res`
+  (3840x2160 performance: 1920x1080 to 3840x2160). With SMAA or nothing at start the set is off and the game renders as before.
   `output_res = auto` is 1920x1080 with SMAA or nothing; with DLAA or upscaling from the start (`resolution.c`
   `res_temporal_at_start`) the game renders 2560x1440 or 3840x2160, the largest the screen holds (`resolution.c`
   `res_auto`, `gfx_display_height`, the primary monitor before the window exists), so DLAA runs at the screen's size,

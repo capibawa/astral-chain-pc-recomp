@@ -146,6 +146,8 @@ static double dlss_share(const char *m) {
     return 0;
 }
 
+static void res_size(unsigned *w, unsigned *h);   // below: output_res as the res set renders it, auto resolved
+
 static void decide(void) {
     if (R.decided) return;
     R.decided = 1;
@@ -154,7 +156,10 @@ static void decide(void) {
     const char *o = cfg_value("AC_OUTPUT_RES");
     unsigned w = 0, h = 0;
     char tail;
-    if (sscanf(o, "%ux%u%c", &w, &h, &tail) == 2 && w >= 1280 && h >= 720 && w <= 7680 && h <= 4320) {
+    if (!strcmp(o, "auto")) {   // the size auto took at start (res_size)
+        res_size(&w, &h);
+        R.ow = w, R.oh = h;
+    } else if (sscanf(o, "%ux%u%c", &w, &h, &tail) == 2 && w >= 1280 && h >= 720 && w <= 7680 && h <= 4320) {
         R.ow = w & ~1u;
         R.oh = h & ~1u;
     } else {
@@ -550,6 +555,7 @@ static uint64_t size_asked;            // the latest size res_dlss_mode asked fo
 static volatile uint64_t size_pending; // that size until the game thread takes it, 0: none
 
 static void scene_only_init(int set) {
+    decide();   // R.dlss_k, the start mode's share (nothing on the 1.0.1 path has asked for it yet)
     unsigned g[2];
     res_game_size(g);
     // On when a setting at start can run DLAA or an upscaler, so upscaling and its quality can change while the game
@@ -642,9 +648,9 @@ void res_auto_drop(void) {
             uint32_t page[2] = {size_w, size_h};
             memcpy((uint8_t *)rt_patch_page() + RES_PAGE, page, sizeof page);
         }
+        R.ow = size_w, R.oh = size_h;   // decide's output, if it already ran
         if (R.on) {
             unsigned g[2] = {size_w, size_h};
-            R.ow = size_w, R.oh = size_h;
             scene_for(R.dlss_k, g, &R.sw, &R.sh);
             scene_page(R.sw, R.sh);
             size_asked = pack(R.sw, R.sh);

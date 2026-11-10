@@ -238,9 +238,8 @@
 # next frame), except turning it on from off, which takes effect at the next start.
 # upscaling = off
 # How much smaller the scene is drawn while upscaling: quality, balanced, performance or ultra_performance (1280x720,
-# 1120x630, 960x540 or 640x360 of the game's 1920x1080, about 67, 58, 50 and 33 %). ssaa scales both: at 2160p
-# performance renders 1920x1080 and the upscaler outputs 3840x2160; at 1440p the scene takes the nearest size the game
-# can render scaled (65, 60, 50 and 35 %).
+# 1120x630, 960x540 or 640x360 of the game's 1920x1080, about 67, 58, 50 and 33 %). The shares apply to output_res:
+# at 3840x2160 performance renders 1920x1080 and the upscaler outputs 3840x2160 (sizes in steps of 32x18, the nearest).
 # upscaling_quality = quality
 # The DLSS model, for DLAA and DLSS upscaling: default (NVIDIA's advice per mode: K for dlaa, quality and balanced, M
 # for performance), k (K in every mode, the sharpest) or j (slightly less ghosting behind moving characters, a little

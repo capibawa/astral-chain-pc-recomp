@@ -147,9 +147,9 @@ static void primary_height(void *arg) {
 int gfx_display_height(void) {
     int w, h;
     if (gfx_window_monitor_size(&w, &h)) return h;
-    // Before the window (vk_texture.c render_scale runs from res_init, ahead of the Vulkan instance): the primary
-    // display. SDL's video is brought up now if it is not yet, on the window's thread as always (video_up), and the
-    // question is asked there: a height of 0 here would fix ssaa = auto at the game's size for the whole run.
+    // Before the window (resolution.c res_auto runs from mem_init, ahead of the Vulkan instance): the primary display.
+    // SDL's video is brought up now if it is not yet, on the window's thread as always (video_up), and the question is
+    // asked there: a height of 0 here would fix output_res = auto at 1920x1080 for the whole run.
     if (!video_up()) return 0;
     int height = 0;
     run_on_window(primary_height, &height);

@@ -39,12 +39,13 @@ spin main 9a8274 9a829c   # 5 instructions; loads
 # Scene size for the upscaling modes (runtime/resolution.c res_init, AC_UPSCALING_QUALITY quality/balanced/performance). The
 # game keeps three dynamic-resolution levels, each with its own scene targets (light target, scene depth and the passes
 # sized from them), made by the function at 40fb60 (level, width, height); the per-frame selector at 4183a0 points the
-# renderer at one level's targets, and the output and HUD stay at the render size (4328c0, which res1080 / res1062
+# renderer at one level's targets, and the output and HUD stay at the render size (4328c0, which res / res1062
 # set). The scene is scaled to the output by the game's own pass. These six csel pick each level's width (w1) and height
 # (w2) from the docked or handheld values; the helpers load the scene size from the patch page (+16, {w, h} as floats)
 # instead, for both modes and every level, so the level the game picks no longer matters. The cmp before them stays
-# res1080's / res1062's. Measured (frame dumps at 960x540): the depth prepass, light target, bloom and composite all
-# follow, and the SMAA blending pass draws the composite into the 1920x1080 output, where runtime/vk_dlaa.c runs DLSS.
+# res's / res1062's; at 40f1d8, which res and res1062 patch too, this set comes first in this file and so wins while it
+# is on. Measured (frame dumps at 960x540): the depth prepass, light target, bloom and composite all follow, and the
+# SMAA blending pass draws the composite into the 1920x1080 output, where runtime/vk_dlaa.c runs DLSS.
 set  scene AC_PATCH_SCENE 0
 site scene main 40f18c 1a930001 @fn:rt_res_scene_w1   # csel w1, w0, w19, eq (level 0 width)
 site scene main 40f190 1a940102 @fn:rt_res_scene_h2   # csel w2, w8, w20, eq (level 0 height)

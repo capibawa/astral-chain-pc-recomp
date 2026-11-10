@@ -293,7 +293,7 @@ void vk_dlaa_init(void) {
 }
 
 // ---------------------------------------------------------------- where DLAA runs in Astral Chain's frame
-// Measured (AC_DUMP, frame 4200 outside the police HQ, 1920x1080 scene, the same order at ssaa = 2160p): Astral Chain
+// Measured (AC_DUMP, frame 4200 outside the police HQ, 1920x1080 scene, the same order at a 3840x2160 output): Astral Chain
 // renders forward. A depth-only prepass writes the scene depth (D32F_S8 at the scene size); the opaque draws, and after
 // the shadow map the rest of the opaque and the transparents, go into the R11G11B10F light target with that depth
 // (between them a full-screen copy of it and a half-size pass). The bloom chain then reads it at half size and down
@@ -417,22 +417,22 @@ int vk_dlaa_dlss_state(void) {
 
 int vk_dlaa_running(void) { return !dl_active() ? 0 : D.fsr3 ? VK_TAA_FSR3 : D.native ? VK_TAA_DLAA : VK_TAA_DLSS; }
 
-// A scene target of this width is smaller than the output, whose targets ssaa scales as well. Asked of the target and
-// not of the scene size res_sizes reports: that moves when the game starts its rebuild, and the frames already drawn at the old size are
-// still to come. Judged by the setting, a frame at the old small size ran in-place DLAA, which made a feature of its
-// own for that frame, and a frame at the old full size waited for a scaling pass that never came and shook.
+// A scene target of this width is smaller than the output, the size the game renders (resolution.c res_game_size:
+// output_res through the res set). Asked of the target and not of the scene size res_sizes reports: that moves when the
+// game starts its rebuild, and the frames already drawn at the old size are still to come. Judged by the setting, a
+// frame at the old small size ran in-place DLAA, which made a feature of its own for that frame, and a frame at the old
+// full size waited for a scaling pass that never came and shook.
 static int target_scaled(uint32_t w) {
-    unsigned o[2], s[2];
-    res_sizes(o, s);
-    return (float)w + 2.0f < (float)o[0] * vk_render_scale();
+    unsigned o[2];
+    res_game_size(o);
+    return w + 2 < o[0];
 }
 
-// A target of the output's size, with what ssaa makes of it (its rounding is vk_texture.c's: within two pixels).
+// A target of the output's size (within two pixels).
 static int output_sized(const VkExecTarget *c) {
-    unsigned o[2], s[2];
-    res_sizes(o, s);
-    float k = vk_render_scale();
-    return fabsf((float)c->width - (float)o[0] * k) <= 2.0f && fabsf((float)c->height - (float)o[1] * k) <= 2.0f;
+    unsigned o[2];
+    res_game_size(o);
+    return fabsf((float)c->width - (float)o[0]) <= 2.0f && fabsf((float)c->height - (float)o[1]) <= 2.0f;
 }
 
 static void dl_fail(const char *what, NgxResult r) {
@@ -1126,8 +1126,8 @@ static void camera_planes(float *near_z, float *far_z, float *fov_y) {
 
 // The quality setting DLSS is created with, from the scene's share of the output width. The limits lie halfway between
 // the modes' shares (67, 58, 50 and 33 %), because resolution.c scene_for moves a scene to the nearest size on its
-// grid: at ssaa = 1440p Quality is 65 % and Ultra Performance 35 %, which limits at the shares themselves called
-// Balanced and would call the wrong model's mode.
+// 32x18 grid, which can land a share a little off its mode's (Quality at 2560x1440 is 1696x954, 66.25 %): limits at
+// the shares themselves would call the wrong model's mode.
 static int perf_quality(uint32_t w, uint32_t ow) {
     if (w >= ow) return NGX_PERFQ_DLAA;
     double k = (double)w / ow;
@@ -1391,7 +1391,8 @@ void vk_dlaa_pass(VkExec *ex) {
     }
     // the game's scaling pass: one colour target of the output's size, wider than the scene, no depth (the SMAA blend,
     // which writes the RGBA8 picture the HUD is drawn over). As the TotK Recomp asks for the output's size: a pass of
-    // another size (2560x1440 at ssaa = 2160p, on the title screen) made a DLSS feature of its own after each mode change.
+    // another size (2560x1440 at a 3840x2160 output, on the title screen) made a DLSS feature of its own after each mode
+    // change.
     // A frame without a composite is left unresolved (a missed DLAA point).
     if (D.comp_ok && ex->pass_ncolor == 1 && c->image && !z->image && c->width > D.color.width && output_sized(c) &&
         c->samples <= 1 && !c->is3d) {
